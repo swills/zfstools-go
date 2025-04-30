@@ -1,27 +1,28 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
 
+	flag "github.com/spf13/pflag"
 	"zfstools-go/pkg/config"
 	"zfstools-go/pkg/zfstools"
 )
 
 func usage() {
 	_, _ = fmt.Fprintf(os.Stderr, "Usage: %s [-dknpuv] <INTERVAL> <KEEP>\n", os.Args[0])
-	_, _ = fmt.Fprintln(os.Stderr, "    -d               Show debug output.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -k               Keep zero-sized snapshots.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -n               Dry-run. Show what would be done.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -p               Create snapshots in parallel.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -P pool          Act only on the specified pool.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -s prefix        Specify snapshot prefix.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -u               Use UTC for timestamps.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -v               Verbose output.")
-	os.Exit(1)
+	_, _ = fmt.Fprintln(os.Stderr, "    -d              Show debug output.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -k              Keep zero-sized snapshots.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -p              Create snapshots in parallel.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -P pool         Act only on the specified pool.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -u              Use UTC for snapshots.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -v              Show what is being done.")
+	_, _ = fmt.Fprintln(os.Stderr, "    INTERVAL        The interval to snapshot.")
+	_, _ = fmt.Fprintln(os.Stderr, "    KEEP            How many snapshots to keep.")
+	os.Exit(0)
 }
 
 func main() {
@@ -31,15 +32,13 @@ func main() {
 
 	var pool string
 
-	flag.BoolVar(&cfg.Debug, "d", false, "")
-	flag.BoolVar(&cfg.DestroyZeroSized, "k", false, "")
-	flag.BoolVar(&cfg.DryRun, "n", false, "")
-	flag.BoolVar(&cfg.UseThreads, "p", false, "")
-	flag.StringVar(&pool, "P", "", "")
-	flag.StringVar(&cfg.SnapshotPrefix, "s", "", "")
-	flag.BoolVar(&cfg.UseUTC, "u", false, "")
-	flag.BoolVar(&cfg.Verbose, "v", false, "")
-
+	flag.BoolVarP(&cfg.Debug, "debug", "d", false, "")
+	flag.BoolVarP(&cfg.DestroyZeroSized, "keep-zeros", "k", false, "")
+	flag.BoolVarP(&cfg.DryRun, "dry-run", "n", false, "")
+	flag.BoolVarP(&cfg.UseThreads, "parallel", "p", false, "")
+	flag.StringVarP(&pool, "pool", "P", "", "")
+	flag.BoolVarP(&cfg.UseUTC, "utc", "u", false, "")
+	flag.BoolVarP(&cfg.Verbose, "verbose", "v", false, "")
 	flag.Usage = usage
 	flag.Parse()
 
