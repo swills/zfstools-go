@@ -13,13 +13,12 @@ import (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s [-dnpv] [-P pool]\n", os.Args[0])
-	fmt.Fprintln(os.Stderr, "    -d               Show debug output.")
-	fmt.Fprintln(os.Stderr, "    -n               Dry-run. Show what would be done.")
-	fmt.Fprintln(os.Stderr, "    -p               Destroy snapshots in parallel.")
-	fmt.Fprintln(os.Stderr, "    -P pool          Act only on the specified pool.")
-	fmt.Fprintln(os.Stderr, "    -v               Verbose output.")
-	os.Exit(1)
+	_, _ = fmt.Fprintln(os.Stderr, "Usage: /usr/local/sbin/zfs-cleanup-snapshots [-dnv]")
+	_, _ = fmt.Fprintln(os.Stderr, "    -d              Show debug output.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -p              Create snapshots in parallel.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -P pool         Act only on the specified pool.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -v              Show what is being done.")
 }
 
 func main() {
@@ -45,7 +44,7 @@ func main() {
 	// List all snapshots recursively
 	snapshots, err := zfs.ListSnapshots(pool, true, cfg.Debug)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing snapshots: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Error listing snapshots: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -63,7 +62,7 @@ func main() {
 	// Get dataset list
 	datasets, err := zfs.ListDatasets(pool, []string{}, cfg.Debug)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing datasets: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Error listing datasets: %v\n", err)
 		os.Exit(1)
 	}
 
