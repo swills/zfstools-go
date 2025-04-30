@@ -19,7 +19,7 @@ func (p *Pool) Equals(other *Pool) bool {
 func (p *Pool) String() string {
 	var out strings.Builder
 	for k, v := range p.Properties {
-		fmt.Fprintf(&out, "[%s] %s: %s\n", p.Name, k, v)
+		_, _ = fmt.Fprintf(&out, "[%s] %s: %s\n", p.Name, k, v)
 	}
 
 	return out.String()
