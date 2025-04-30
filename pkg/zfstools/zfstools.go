@@ -282,7 +282,7 @@ func CleanupExpiredSnapshots(cfg config.Config, pool string, datasets map[string
 		}
 	}
 
-	if cfg.DestroyZeroSized {
+	if cfg.ShouldDestroyZeroSized {
 		grouped = DatasetsDestroyZeroSizedSnapshots(grouped, cfg)
 	}
 

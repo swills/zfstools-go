@@ -27,21 +27,31 @@ func usage() {
 }
 
 func main() {
-	cfg := config.Config{
-		Timestamp: time.Now(),
-	}
+	var err error
 
 	var pool string
 
-	pflag.BoolVarP(&cfg.Debug, "debug", "d", false, "")
-	pflag.BoolVarP(&cfg.DestroyZeroSized, "keep-zeros", "k", false, "")
-	pflag.BoolVarP(&cfg.DryRun, "dry-run", "n", false, "")
-	pflag.BoolVarP(&cfg.UseThreads, "parallel", "p", false, "")
-	pflag.StringVarP(&pool, "pool", "P", "", "")
+	var keepZeroSized bool
+
+	cfg := config.Config{
+		Timestamp:              time.Now(),
+		ShouldDestroyZeroSized: true,
+	}
+
 	pflag.BoolVarP(&cfg.UseUTC, "utc", "u", false, "")
+	pflag.BoolVarP(&keepZeroSized, "keep-zero-sized-snapshots", "k", false, "")
+	pflag.BoolVarP(&cfg.UseThreads, "parallel-snapshots", "p", false, "")
+	pflag.StringVarP(&pool, "pool", "P", "", "")
+	pflag.BoolVarP(&cfg.DryRun, "dry-run", "n", false, "")
 	pflag.BoolVarP(&cfg.Verbose, "verbose", "v", false, "")
+	pflag.BoolVarP(&cfg.Debug, "debug", "d", false, "")
+	pflag.StringVarP(&cfg.SnapshotPrefix, "snapshot-prefix", "s", "zfs-auto-snap", "")
 	pflag.Usage = usage
 	pflag.Parse()
+
+	if keepZeroSized {
+		cfg.ShouldDestroyZeroSized = false
+	}
 
 	args := pflag.Args()
 	if len(args) < 2 {
@@ -50,14 +60,10 @@ func main() {
 
 	cfg.Interval = args[0]
 
-	keep, err := strconv.Atoi(args[1])
-	if err != nil || keep < 0 {
-		_, _ = fmt.Fprintln(os.Stderr, "Invalid KEEP value")
-
-		usage()
+	cfg.Keep, err = strconv.Atoi(args[1])
+	if err != nil {
+		cfg.Keep = 0
 	}
-
-	cfg.Keep = keep
 
 	datasets := zfstools.FindEligibleDatasets(cfg, pool)
 
