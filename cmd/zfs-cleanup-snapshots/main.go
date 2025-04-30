@@ -60,11 +60,7 @@ func main() {
 	}
 
 	// Get dataset list
-	datasets, err := zfs.ListDatasets(pool, []string{}, cfg.Debug)
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Error listing datasets: %v\n", err)
-		os.Exit(1)
-	}
+	datasets := zfs.ListDatasets(pool, []string{}, cfg.Debug)
 
 	// Group and destroy
 	grouped := zfstools.GroupSnapshotsIntoDatasets(filtered, datasets)

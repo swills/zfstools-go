@@ -160,7 +160,7 @@ func FindEligibleDatasets(cfg config.Config, pool string) map[string][]zfs.Datas
 		"mounted",
 	}
 
-	all, _ := zfs.ListDatasets(pool, props, cfg.Debug)
+	all := zfs.ListDatasets(pool, props, cfg.Debug)
 
 	var included []zfs.Dataset
 

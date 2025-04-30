@@ -26,7 +26,7 @@ func (d *Dataset) ContainsDB(kind string) *Dataset {
 }
 
 // ListDatasets returns a list of ZFS datasets for the pool and properties
-func ListDatasets(pool string, properties []string, debug bool) ([]Dataset, error) {
+func ListDatasets(pool string, properties []string, debug bool) []Dataset {
 	var datasets []Dataset
 
 	cmdProperties := append([]string{"name", "type"}, properties...)
@@ -44,12 +44,12 @@ func ListDatasets(pool string, properties []string, debug bool) ([]Dataset, erro
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("stdout pipe: %w", err)
+		return []Dataset{}
 	}
 
 	err = cmd.Start()
 	if err != nil {
-		return nil, fmt.Errorf("zfs start: %w", err)
+		return []Dataset{}
 	}
 
 	scanner := bufio.NewScanner(stdout)
@@ -92,8 +92,8 @@ func ListDatasets(pool string, properties []string, debug bool) ([]Dataset, erro
 
 	err = cmd.Wait()
 	if err != nil {
-		return nil, fmt.Errorf("zfs wait: %w", err)
+		return []Dataset{}
 	}
 
-	return datasets, nil
+	return datasets
 }
