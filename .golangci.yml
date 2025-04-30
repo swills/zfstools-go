@@ -108,6 +108,7 @@ linters-settings:
     sections:
       - standard
       - default
+      - prefix(zfstools-go)
     custom-order: true
   ireturn:
     allow:

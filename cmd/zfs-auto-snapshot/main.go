@@ -6,7 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	flag "github.com/spf13/pflag"
+	"github.com/spf13/pflag"
+
 	"zfstools-go/pkg/config"
 	"zfstools-go/pkg/zfstools"
 )
@@ -32,17 +33,17 @@ func main() {
 
 	var pool string
 
-	flag.BoolVarP(&cfg.Debug, "debug", "d", false, "")
-	flag.BoolVarP(&cfg.DestroyZeroSized, "keep-zeros", "k", false, "")
-	flag.BoolVarP(&cfg.DryRun, "dry-run", "n", false, "")
-	flag.BoolVarP(&cfg.UseThreads, "parallel", "p", false, "")
-	flag.StringVarP(&pool, "pool", "P", "", "")
-	flag.BoolVarP(&cfg.UseUTC, "utc", "u", false, "")
-	flag.BoolVarP(&cfg.Verbose, "verbose", "v", false, "")
-	flag.Usage = usage
-	flag.Parse()
+	pflag.BoolVarP(&cfg.Debug, "debug", "d", false, "")
+	pflag.BoolVarP(&cfg.DestroyZeroSized, "keep-zeros", "k", false, "")
+	pflag.BoolVarP(&cfg.DryRun, "dry-run", "n", false, "")
+	pflag.BoolVarP(&cfg.UseThreads, "parallel", "p", false, "")
+	pflag.StringVarP(&pool, "pool", "P", "", "")
+	pflag.BoolVarP(&cfg.UseUTC, "utc", "u", false, "")
+	pflag.BoolVarP(&cfg.Verbose, "verbose", "v", false, "")
+	pflag.Usage = usage
+	pflag.Parse()
 
-	args := flag.Args()
+	args := pflag.Args()
 	if len(args) < 2 {
 		usage()
 	}
