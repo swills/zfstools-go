@@ -1,31 +1,32 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"time"
+
+	flag "github.com/spf13/pflag"
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s [-dnv] DATASET\n", os.Args[0])
-	fmt.Fprintln(os.Stderr, "    -d               Show debug output.")
-	fmt.Fprintln(os.Stderr, "    -n               Dry-run. Do not execute any commands.")
-	fmt.Fprintln(os.Stderr, "    -v               Show what is being done.")
-	os.Exit(1)
+	_, _ = fmt.Fprintf(os.Stderr, "Usage: %s [-dnv] DATASET\n", os.Args[0])
+	_, _ = fmt.Fprintln(os.Stderr, "    -d              Show debug output.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
+	_, _ = fmt.Fprintln(os.Stderr, "    -v              Show what is being done.")
+	os.Exit(0)
 }
 
 func main() {
 	var debug bool
 
-	var verbose bool
-
 	var dryRun bool
 
-	flag.BoolVar(&debug, "d", false, "")
-	flag.BoolVar(&dryRun, "n", false, "")
-	flag.BoolVar(&verbose, "v", false, "")
+	var verbose bool
+
+	flag.BoolVarP(&debug, "debug", "d", false, "")
+	flag.BoolVarP(&dryRun, "dry-run", "n", false, "")
+	flag.BoolVarP(&verbose, "verbose", "v", false, "")
 	flag.Usage = usage
 	flag.Parse()
 
