@@ -103,6 +103,8 @@ func Create(targets []string, recursive bool, dbName string, dryRun, verbose, de
 	base := []string{"zfs", "snapshot"}
 	if recursive {
 		base = append(base, "-r")
+	} else {
+		base = append(base, "")
 	}
 
 	cmdLine := base

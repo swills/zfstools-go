@@ -39,7 +39,11 @@ func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 	}
 
 	if debug {
-		fmt.Println("zpool " + strings.Join(args, " "))
+		fmt.Printf("zpool " + strings.Join(args, " "))
+		if strings.Contains(strings.Join(args, " "), "@") {
+			fmt.Print(" 2>/dev/null")
+		}
+		fmt.Printf("\n")
 	}
 
 	cmd := exec.Command("zpool", args...)
