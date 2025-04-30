@@ -80,7 +80,7 @@ func findRecursiveDatasets(datasets map[string][]zfs.Dataset) map[string][]zfs.D
 		excludedChild := false
 
 		for _, child := range all {
-			if strings.HasPrefix(child.Name, dataset.Name+"/") {
+			if strings.HasPrefix(child.Name, dataset.Name) {
 				for _, ex := range datasets["excluded"] {
 					if ex.Name == child.Name {
 						excludedChild = true
