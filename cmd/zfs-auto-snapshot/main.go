@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"time"
@@ -12,17 +13,21 @@ import (
 	"zfstools-go/pkg/zfstools"
 )
 
+func usageWriter(writer io.Writer, name string) {
+	_, _ = fmt.Fprintf(writer, "Usage: %s [-dknpuv] <INTERVAL> <KEEP>\n", name)
+	_, _ = fmt.Fprintln(writer, "    -d              Show debug output.")
+	_, _ = fmt.Fprintln(writer, "    -k              Keep zero-sized snapshots.")
+	_, _ = fmt.Fprintln(writer, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
+	_, _ = fmt.Fprintln(writer, "    -p              Create snapshots in parallel.")
+	_, _ = fmt.Fprintln(writer, "    -P pool         Act only on the specified pool.")
+	_, _ = fmt.Fprintln(writer, "    -u              Use UTC for snapshots.")
+	_, _ = fmt.Fprintln(writer, "    -v              Show what is being done.")
+	_, _ = fmt.Fprintln(writer, "    INTERVAL        The interval to snapshot.")
+	_, _ = fmt.Fprintln(writer, "    KEEP            How many snapshots to keep.")
+}
+
 func usage() {
-	_, _ = fmt.Fprintf(os.Stderr, "Usage: %s [-dknpuv] <INTERVAL> <KEEP>\n", os.Args[0])
-	_, _ = fmt.Fprintln(os.Stderr, "    -d              Show debug output.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -k              Keep zero-sized snapshots.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -p              Create snapshots in parallel.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -P pool         Act only on the specified pool.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -u              Use UTC for snapshots.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -v              Show what is being done.")
-	_, _ = fmt.Fprintln(os.Stderr, "    INTERVAL        The interval to snapshot.")
-	_, _ = fmt.Fprintln(os.Stderr, "    KEEP            How many snapshots to keep.")
+	usageWriter(os.Stderr, os.Args[0])
 	os.Exit(0)
 }
 
