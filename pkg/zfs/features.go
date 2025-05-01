@@ -7,11 +7,9 @@ import (
 var (
 	onceBookmarks sync.Once
 	onceMultiSnap sync.Once
-	onceWritten   sync.Once
 
 	haveBookmarks bool
 	haveMultiSnap bool
-	haveWritten   bool
 )
 
 // HasBookmarks checks for support of 'feature@bookmarks'
@@ -45,13 +43,4 @@ func HasMultiSnap(debug bool) bool {
 	})
 
 	return haveMultiSnap
-}
-
-// HasWritten piggybacks on HasBookmarks
-func HasWritten(debug bool) bool {
-	onceWritten.Do(func() {
-		haveWritten = HasBookmarks(debug)
-	})
-
-	return haveWritten
 }
