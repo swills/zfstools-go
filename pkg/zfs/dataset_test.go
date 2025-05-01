@@ -48,6 +48,39 @@ func TestListDatasets(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "datasetsWithPoolName",
+			args: args{
+				pool:       "tank",
+				properties: []string{"com.sun:auto-snapshot"},
+				debug:      false,
+			},
+			mockCmdFunc: "TestListDatasets_PoolNameSet",
+			want: []Dataset{
+				{
+					Name: "tank",
+					Properties: map[string]string{
+						"type": "filesystem",
+					},
+					DB: "",
+				},
+				{
+					Name: "tank/ROOT",
+					Properties: map[string]string{
+						"type": "filesystem",
+					},
+					DB: "",
+				},
+				{
+					Name: "tank/ROOT/default",
+					Properties: map[string]string{
+						"type":                  "filesystem",
+						"com.sun:auto-snapshot": "true",
+					},
+					DB: "",
+				},
+			},
+		},
 	}
 
 	for _, testCase := range tests {
@@ -105,6 +138,37 @@ func TestListDatasets_EmptyPoolName(_ *testing.T) {
 	}
 
 	fmt.Printf("pool/fs1\tfilesystem\tmysql\t-\npool/fs2\tfilesystem\t-\ttrue\n")
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListDatasets_PoolNameSet(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-H",
+		"-t",
+		"filesystem,volume",
+		"-o",
+		"name,type,com.sun:auto-snapshot",
+		"-s",
+		"name",
+		"-r",
+		"tank",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("tank\tfilesystem\t-\ntank/ROOT\tfilesystem\t-\ntank/ROOT/default\tfilesystem\ttrue\n")
 
 	os.Exit(0)
 }
