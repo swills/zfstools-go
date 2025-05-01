@@ -3,7 +3,6 @@ package zfs
 import (
 	"bufio"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -24,8 +23,6 @@ func (p *Pool) String() string {
 
 	return out.String()
 }
-
-var runZpoolFn = exec.Command
 
 func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 	if len(cmdProps) == 0 {

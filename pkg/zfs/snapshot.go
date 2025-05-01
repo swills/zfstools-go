@@ -3,7 +3,6 @@ package zfs
 import (
 	"bufio"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,7 +22,7 @@ func (s *Snapshot) GetUsed(debug bool) int64 {
 			fmt.Println("zfs get -Hp -o value used", s.Name)
 		}
 
-		cmd := exec.Command("zfs", "get", "-Hp", "-o", "value", "used", s.Name)
+		cmd := runZfsFn("zfs", "get", "-Hp", "-o", "value", "used", s.Name)
 
 		out, err := cmd.Output()
 
@@ -88,7 +87,7 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 		fmt.Println("zfs", strings.Join(args, " "))
 	}
 
-	cmd := exec.Command("zfs", args...)
+	cmd := runZfsFn("zfs", args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -151,7 +150,7 @@ UNLOCK TABLES;`, cmdStr)
 	}
 
 	if !dryRun {
-		_ = exec.Command("sh", "-c", cmdStr).Run()
+		_ = runZfsFn("sh", "-c", cmdStr).Run()
 	}
 }
 
@@ -245,7 +244,7 @@ func CreateMany(snapshotName string, datasets []Dataset, recursive bool, dryRun,
 }
 
 func getArgMax() int {
-	out, err := exec.Command("getconf", "ARG_MAX").Output()
+	out, err := runZfsFn("getconf", "ARG_MAX").Output()
 	if err != nil {
 		return 4096 // conservative fallback
 	}
@@ -274,6 +273,6 @@ func DestroySnapshot(name string, recursive, dryRun, debug bool) {
 	}
 
 	if !dryRun {
-		_ = exec.Command("zfs", args...).Run()
+		_ = runZfsFn("zfs", args...).Run()
 	}
 }

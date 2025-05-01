@@ -3,7 +3,6 @@ package zfs
 import (
 	"bufio"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -19,8 +18,6 @@ func (d Dataset) Equals(other Dataset) bool {
 }
 
 // ListDatasets returns a list of ZFS datasets for the pool and properties
-var runZfsFn = exec.Command
-
 func ListDatasets(pool string, properties []string, debug bool) []Dataset {
 	var datasets []Dataset
 
