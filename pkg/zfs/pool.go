@@ -11,19 +11,6 @@ type Pool struct {
 	Name       string
 }
 
-func (p *Pool) Equals(other *Pool) bool {
-	return p == other || (other != nil && p.Name == other.Name)
-}
-
-func (p *Pool) String() string {
-	var out strings.Builder
-	for k, v := range p.Properties {
-		_, _ = fmt.Fprintf(&out, "[%s] %s: %s\n", p.Name, k, v)
-	}
-
-	return out.String()
-}
-
 func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 	if len(cmdProps) == 0 {
 		cmdProps = []string{"all"}
