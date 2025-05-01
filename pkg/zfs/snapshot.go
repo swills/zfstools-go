@@ -42,6 +42,26 @@ func (s *Snapshot) IsZero(debug bool) bool {
 	return s.GetUsed(debug) == 0
 }
 
+func toIntPrefix(s string) int64 {
+	s = strings.TrimSpace(s)
+	digits := ""
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			digits += string(r)
+		} else {
+			break
+		}
+	}
+	if digits == "" {
+		return 0
+	}
+	val, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return val
+}
+
 // ListSnapshots returns all snapshots, optionally recursive
 func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, error) {
 	args := []string{"list"}
@@ -85,8 +105,7 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 		if len(parts) != 2 {
 			continue
 		}
-
-		size, _ := strconv.ParseInt(parts[1], 10, 64)
+		size := toIntPrefix(parts[1])
 		snapshots = append(snapshots, Snapshot{Name: parts[0], Used: size})
 	}
 
