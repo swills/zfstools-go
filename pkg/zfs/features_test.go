@@ -6,6 +6,8 @@ import (
 )
 
 func TestHasBookmarks_True(t *testing.T) {
+	t.Parallel()
+
 	resetFeatures()
 
 	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
@@ -20,6 +22,8 @@ func TestHasBookmarks_True(t *testing.T) {
 }
 
 func TestHasBookmarks_False(t *testing.T) {
+	t.Parallel()
+
 	resetFeatures()
 
 	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
@@ -34,6 +38,8 @@ func TestHasBookmarks_False(t *testing.T) {
 }
 
 func TestHasBookmarks_Error(t *testing.T) {
+	t.Parallel()
+
 	resetFeatures()
 
 	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
@@ -58,9 +64,11 @@ type assertError string
 func (e assertError) Error() string { return string(e) }
 
 func TestHasMultiSnap_True(t *testing.T) {
+	t.Parallel()
+
 	resetFeatures()
 
-	listPoolsFn = func(pool string, props []string, debug bool) ([]Pool, error) {
+	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
 		return []Pool{
 			{Properties: map[string]string{"feature@bookmarks": "enabled"}},
 		}, nil
@@ -72,9 +80,11 @@ func TestHasMultiSnap_True(t *testing.T) {
 }
 
 func TestHasMultiSnap_False(t *testing.T) {
+	t.Parallel()
+
 	resetFeatures()
 
-	listPoolsFn = func(pool string, props []string, debug bool) ([]Pool, error) {
+	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
 		return []Pool{
 			{Properties: map[string]string{}},
 		}, nil

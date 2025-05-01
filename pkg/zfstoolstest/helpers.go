@@ -16,7 +16,7 @@ func MakeFakeCommand(mockFuncName string) func(command string, args ...string) *
 	return func(command string, args ...string) *exec.Cmd {
 		mockArg := "-test.run=" + mockFuncName
 		cs := append([]string{mockArg, "--", command}, args...) // -test.run means the self mock function
-		cmd := exec.Command(os.Args[0], cs...)
+		cmd := exec.Command(os.Args[0], cs...)                  //nolint:gosec
 		cmd.Env = os.Environ()
 		cmd.Env = append(cmd.Env, "GO_WANT_HELPER_PROCESS=1")
 

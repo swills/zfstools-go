@@ -2,12 +2,15 @@ package zfs
 
 import (
 	"fmt"
-	"github.com/go-test/deep"
 	"os"
 	"testing"
+
+	"github.com/go-test/deep"
+
 	"zfstools-go/pkg/zfstoolstest"
 )
 
+//nolint:paralleltest
 func TestListDatasets(t *testing.T) {
 	type args struct {
 		pool       string
@@ -15,6 +18,7 @@ func TestListDatasets(t *testing.T) {
 		debug      bool
 	}
 
+	//nolint:govet
 	tests := []struct {
 		name        string
 		args        args
@@ -93,21 +97,23 @@ func TestListDatasets(t *testing.T) {
 			if diff != nil {
 				t.Errorf("compare failed: %v", diff)
 			}
-
 		})
 	}
 }
 
 func TestDataset_Equal(t *testing.T) {
-	a := Dataset{Name: "tank/data"}
-	b := Dataset{Name: "tank/data"}
-	c := Dataset{Name: "tank/logs"}
+	t.Parallel()
 
-	if !a.Equals(b) {
-		t.Error("expected a and b to be equal")
+	datasetA := Dataset{Name: "tank/data"}
+	datasetB := Dataset{Name: "tank/data"}
+	datasetC := Dataset{Name: "tank/logs"}
+
+	if !datasetA.Equals(datasetB) {
+		t.Error("expected datasetA and datasetB to be equal")
 	}
-	if a.Equals(c) {
-		t.Error("expected a and c to be different")
+
+	if datasetA.Equals(datasetC) {
+		t.Error("expected datasetA and datasetC to be different")
 	}
 }
 
@@ -137,7 +143,7 @@ func TestListDatasets_EmptyPoolName(_ *testing.T) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("pool/fs1\tfilesystem\tmysql\t-\npool/fs2\tfilesystem\t-\ttrue\n")
+	fmt.Printf("pool/fs1\tfilesystem\tmysql\t-\npool/fs2\tfilesystem\t-\ttrue\n") //nolint:forbidigo
 
 	os.Exit(0)
 }
@@ -168,7 +174,7 @@ func TestListDatasets_PoolNameSet(_ *testing.T) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("tank\tfilesystem\t-\ntank/ROOT\tfilesystem\t-\ntank/ROOT/default\tfilesystem\ttrue\n")
+	fmt.Printf("tank\tfilesystem\t-\ntank/ROOT\tfilesystem\t-\ntank/ROOT/default\tfilesystem\ttrue\n") //nolint:forbidigo
 
 	os.Exit(0)
 }

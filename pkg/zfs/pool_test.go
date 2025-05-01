@@ -6,7 +6,9 @@ import (
 )
 
 func TestListPools_SingleProperty(t *testing.T) {
-	runZpoolFn = func(name string, args ...string) *exec.Cmd {
+	t.Parallel()
+
+	runZpoolFn = func(_ string, _ ...string) *exec.Cmd {
 		return fakeCmd("testpool\tfeature@bookmarks\tenabled")
 	}
 
@@ -26,7 +28,9 @@ func TestListPools_SingleProperty(t *testing.T) {
 }
 
 func TestListPools_InvalidLine(t *testing.T) {
-	runZpoolFn = func(name string, args ...string) *exec.Cmd {
+	t.Parallel()
+
+	runZpoolFn = func(_ string, _ ...string) *exec.Cmd {
 		return fakeCmd("incomplete_line")
 	}
 

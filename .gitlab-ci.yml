@@ -59,7 +59,7 @@ lint:
     - go mod tidy -v
     - git diff | diff -u /dev/null -
     - go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.7
-    - echo golangci-lint run ./...
+    - golangci-lint run ./...
 
 go-test:
   stage: test

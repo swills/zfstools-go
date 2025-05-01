@@ -29,7 +29,7 @@ func ListDatasets(pool string, properties []string, debug bool) []Dataset {
 	}
 
 	if debug {
-		fmt.Println("zfs " + strings.Join(args, " "))
+		fmt.Println("zfs " + strings.Join(args, " ")) //nolint:forbidigo
 	}
 
 	cmd := runZfsFn("zfs", args...)

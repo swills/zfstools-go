@@ -8,8 +8,10 @@ import (
 var _ = exec.Command
 
 func TestGetUsed_Stale(t *testing.T) {
+	t.Parallel()
+
 	staleSnapshotSize = true
-	runZfsFn = func(name string, args ...string) *exec.Cmd {
+	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "4096")
 	}
 
@@ -22,16 +24,21 @@ func TestGetUsed_Stale(t *testing.T) {
 }
 
 func TestGetUsed_NotStale(t *testing.T) {
+	t.Parallel()
+
 	staleSnapshotSize = false
 	snap := Snapshot{Name: "pool/fs@snap", Used: 1024}
+
 	if snap.GetUsed(false) != 1024 {
 		t.Error("expected GetUsed to return original Used value")
 	}
 }
 
 func TestIsZero(t *testing.T) {
+	t.Parallel()
+
 	staleSnapshotSize = false
-	runZfsFn = func(name string, args ...string) *exec.Cmd {
+	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("")
 	}
 
@@ -47,9 +54,13 @@ func TestIsZero(t *testing.T) {
 }
 
 func TestDestroySnapshot_DryRun(t *testing.T) {
+	t.Parallel()
+
 	var ran bool
-	runZfsFn = func(name string, args ...string) *exec.Cmd {
+
+	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
 		ran = true
+
 		return exec.Command("false")
 	}
 
@@ -61,8 +72,9 @@ func TestDestroySnapshot_DryRun(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestDestroySnapshot_Real(t *testing.T) {
-	runZfsFn = func(name string, args ...string) *exec.Cmd {
+	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo")
 	}
 
@@ -75,7 +87,9 @@ func TestDestroySnapshot_Real(t *testing.T) {
 }
 
 func TestListSnapshots(t *testing.T) {
-	runZfsFn = func(name string, args ...string) *exec.Cmd {
+	t.Parallel()
+
+	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "pool/fs@a\t1024\n"+
 			"pool/fs@b\t0")
 	}
@@ -94,23 +108,29 @@ func TestListSnapshots(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestCreate(t *testing.T) {
 	var ran bool
-	runZfsFn = func(name string, args ...string) *exec.Cmd {
+
+	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
 		ran = true
+
 		return exec.Command("echo")
 	}
 
 	Create([]string{"pool/fs@snap"}, false, "", false, true, true)
+
 	if !ran {
 		t.Error("expected zfs snapshot to run")
 	}
 }
 
+//nolint:paralleltest
 func TestCreateMany(t *testing.T) {
 	count := 0
-	runZfsFn = func(name string, args ...string) *exec.Cmd {
+	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
 		count++
+
 		return exec.Command("echo")
 	}
 

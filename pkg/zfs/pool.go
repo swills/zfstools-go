@@ -38,13 +38,13 @@ func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 	}
 
 	if debug {
-		fmt.Printf("zpool " + strings.Join(args, " "))
+		fmt.Printf("zpool " + strings.Join(args, " ")) //nolint:forbidigo
 
 		if strings.Contains(strings.Join(args, " "), "@") {
-			fmt.Print(" 2>/dev/null")
+			fmt.Print(" 2>/dev/null") //nolint:forbidigo
 		}
 
-		fmt.Printf("\n")
+		fmt.Printf("\n") //nolint:forbidigo
 	}
 
 	cmd := runZpoolFn("zpool", args...)

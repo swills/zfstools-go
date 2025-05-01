@@ -19,7 +19,7 @@ type Snapshot struct {
 func (s *Snapshot) GetUsed(debug bool) int64 {
 	if s.Used == 0 || staleSnapshotSize {
 		if debug {
-			fmt.Println("zfs get -Hp -o value used", s.Name)
+			fmt.Println("zfs get -Hp -o value used", s.Name) //nolint:forbidigo
 		}
 
 		cmd := runZfsFn("zfs", "get", "-Hp", "-o", "value", "used", s.Name)
@@ -84,7 +84,7 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 	}
 
 	if debug {
-		fmt.Println("zfs", strings.Join(args, " "))
+		fmt.Println("zfs", strings.Join(args, " ")) //nolint:forbidigo
 	}
 
 	cmd := runZfsFn("zfs", args...)
@@ -142,11 +142,11 @@ SYSTEM %s;
 UNLOCK TABLES;`, cmdStr)
 		cmdStr = fmt.Sprintf(`mysql -e "%s"`, strings.ReplaceAll(sql, "\n", " "))
 	} else if dbName == "postgresql" {
-		cmdStr = fmt.Sprintf(`(psql -c "SELECT PG_START_BACKUP('zfs-auto-snapshot');" postgres ; %s ) ; psql -c "SELECT PG_STOP_BACKUP();" postgres`, cmdStr)
+		cmdStr = fmt.Sprintf(`(psql -c "SELECT PG_START_BACKUP('zfs-auto-snapshot');" postgres ; %s ) ; psql -c "SELECT PG_STOP_BACKUP();" postgres`, cmdStr) //nolint:lll
 	}
 
 	if debug || verbose {
-		fmt.Println(cmdStr)
+		fmt.Println(cmdStr) //nolint:forbidigo
 	}
 
 	if !dryRun {
@@ -265,7 +265,7 @@ func DestroySnapshot(name string, dryRun, debug bool) {
 	args = append(args, name)
 
 	if debug {
-		fmt.Println("zfs", strings.Join(args, " "))
+		fmt.Println("zfs", strings.Join(args, " ")) //nolint:forbidigo
 	}
 
 	if !dryRun {

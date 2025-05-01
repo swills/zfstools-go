@@ -44,7 +44,7 @@ func main() {
 	mysqlCmd := fmt.Sprintf(`mysql -e "%s"`, sql)
 
 	if debug || verbose {
-		fmt.Println(mysqlCmd)
+		fmt.Println(mysqlCmd) //nolint:forbidigo
 	}
 
 	if !dryRun {

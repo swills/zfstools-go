@@ -13,12 +13,12 @@ var destroyedSnapshots []string
 func init() {
 	createdSnapshots = nil
 	destroyedSnapshots = nil
-	createManyFn = func(name string, datasets []zfs.Dataset, recursive, dryRun, verbose, debug, useThreads bool) {
+	createManyFn = func(name string, datasets []zfs.Dataset, _, _, _, _, _ bool) {
 		for _, ds := range datasets {
 			createdSnapshots = append(createdSnapshots, ds.Name+"@"+name)
 		}
 	}
-	destroySnapshotFn = func(name string, dryRun, debug bool) {
+	destroySnapshotFn = func(name string, _, _ bool) {
 		destroyedSnapshots = append(destroyedSnapshots, name)
 	}
 }
@@ -30,6 +30,8 @@ func testConfig(interval string) config.Config {
 }
 
 func TestDoNewSnapshots(t *testing.T) {
+	t.Parallel()
+
 	createdSnapshots = nil
 	cfg := testConfig("frequent")
 	datasets := map[string][]zfs.Dataset{
@@ -44,6 +46,8 @@ func TestDoNewSnapshots(t *testing.T) {
 }
 
 func TestGroupSnapshotsIntoDatasets(t *testing.T) {
+	t.Parallel()
+
 	datasets := []zfs.Dataset{
 		{Name: "pool/home"},
 		{Name: "pool/data"},
@@ -53,6 +57,7 @@ func TestGroupSnapshotsIntoDatasets(t *testing.T) {
 		{Name: "pool/data@zfs-auto-snap_hourly-2025-01-01-01h00"},
 	}
 	grouped := GroupSnapshotsIntoDatasets(snaps, datasets)
+
 	if len(grouped["pool/home"]) != 1 || len(grouped["pool/data"]) != 1 {
 		t.Error("expected each dataset to have one snapshot")
 	}

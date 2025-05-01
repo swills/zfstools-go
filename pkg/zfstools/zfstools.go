@@ -70,6 +70,7 @@ func filterDatasets(datasets []zfs.Dataset, included, excluded *[]zfs.Dataset, p
 	}
 }
 
+//nolint:gocognit,cyclop
 func findRecursiveDatasets(datasets map[string][]zfs.Dataset) map[string][]zfs.Dataset {
 	all := append([]zfs.Dataset{}, datasets["included"]...)
 	all = append(all, datasets["excluded"]...)
@@ -214,7 +215,7 @@ func destroyZeroSizedSnapshots(snaps []zfs.Snapshot, cfg config.Config) []zfs.Sn
 	for _, snap := range snaps[1:] {
 		if snap.IsZero(cfg.Debug) {
 			if cfg.Verbose {
-				fmt.Println("Destroying zero-sized snapshot:", snap.Name)
+				fmt.Println("Destroying zero-sized snapshot:", snap.Name) //nolint:forbidigo
 			}
 
 			if !cfg.DryRun {
