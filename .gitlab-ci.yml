@@ -1,0 +1,21 @@
+stages:
+  - build
+  - test
+  - upload
+  - release
+
+variables:
+  GOTOOLCHAIN: local
+
+zfs-auto-snapshot:
+  stage: build
+  needs: []
+  tags:
+    - FreeBSD
+  script:
+    - export GOFLAGS="-trimpath"
+    - export GOPROXY=https://athens.mouf.io
+    - export GO_LDFLAGS="-s -w -extldflags -static -buildid=${CI_COMMIT_SHA}"
+    - export GOOS=freebsd
+    - export GOARCH=amd64
+    - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-auto-snapshot .cmd/zfs-auto-snapshot
