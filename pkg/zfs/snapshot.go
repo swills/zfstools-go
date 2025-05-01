@@ -41,6 +41,8 @@ func (s *Snapshot) IsZero(debug bool) bool {
 	return s.GetUsed(debug) == 0
 }
 
+// toIntPrefix is designed to act like Ruby's `to_i`, it parses the numbers it can any
+// trailing letters, etc.
 func toIntPrefix(s string) int64 {
 	s = strings.TrimSpace(s)
 	digits := ""
@@ -59,7 +61,7 @@ func toIntPrefix(s string) int64 {
 
 	val, err := strconv.ParseInt(digits, 10, 64)
 	if err != nil {
-		return 0
+		return 0 // can't happen
 	}
 
 	return val
