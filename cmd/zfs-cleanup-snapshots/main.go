@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -12,13 +13,18 @@ import (
 	"zfstools-go/pkg/zfstools"
 )
 
+func usageWriter(writer io.Writer, name string) {
+	_, _ = fmt.Fprintf(writer, "Usage: %s [-dnv]", name)
+	_, _ = fmt.Fprintln(writer, "    -d              Show debug output.")
+	_, _ = fmt.Fprintln(writer, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
+	_, _ = fmt.Fprintln(writer, "    -p              Create snapshots in parallel.")
+	_, _ = fmt.Fprintln(writer, "    -P pool         Act only on the specified pool.")
+	_, _ = fmt.Fprintln(writer, "    -v              Show what is being done.")
+}
+
 func usage() {
-	_, _ = fmt.Fprintln(os.Stderr, "Usage: /usr/local/sbin/zfs-cleanup-snapshots [-dnv]")
-	_, _ = fmt.Fprintln(os.Stderr, "    -d              Show debug output.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -p              Create snapshots in parallel.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -P pool         Act only on the specified pool.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -v              Show what is being done.")
+	usageWriter(os.Stderr, os.Args[0])
+	os.Exit(0)
 }
 
 func main() {

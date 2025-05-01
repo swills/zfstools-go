@@ -17,17 +17,11 @@ func Test_usageWriter(t *testing.T) {
 	}{
 		{
 			name: "simple",
-			args: args{name: "/usr/local/sbin/zfs-auto-snapshot"},
-			wantWriter: `Usage: /usr/local/sbin/zfs-auto-snapshot [-dknpuv] <INTERVAL> <KEEP>
+			args: args{name: "/usr/local/sbin/zfs-snapshot-mysql"},
+			wantWriter: `Usage: /usr/local/sbin/zfs-snapshot-mysql [-dnv] DATASET
     -d              Show debug output.
-    -k              Keep zero-sized snapshots.
     -n              Do a dry-run. Nothing is committed. Only show what would be done.
-    -p              Create snapshots in parallel.
-    -P pool         Act only on the specified pool.
-    -u              Use UTC for snapshots.
     -v              Show what is being done.
-    INTERVAL        The interval to snapshot.
-    KEEP            How many snapshots to keep.
 `,
 		},
 	}

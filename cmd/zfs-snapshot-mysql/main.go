@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"time"
@@ -9,11 +10,15 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+func usageWriter(writer io.Writer, name string) {
+	_, _ = fmt.Fprintf(writer, "Usage: %s [-dnv] DATASET\n", name)
+	_, _ = fmt.Fprintln(writer, "    -d              Show debug output.")
+	_, _ = fmt.Fprintln(writer, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
+	_, _ = fmt.Fprintln(writer, "    -v              Show what is being done.")
+}
+
 func usage() {
-	_, _ = fmt.Fprintf(os.Stderr, "Usage: %s [-dnv] DATASET\n", os.Args[0])
-	_, _ = fmt.Fprintln(os.Stderr, "    -d              Show debug output.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
-	_, _ = fmt.Fprintln(os.Stderr, "    -v              Show what is being done.")
+	usageWriter(os.Stderr, os.Args[0])
 	os.Exit(0)
 }
 
