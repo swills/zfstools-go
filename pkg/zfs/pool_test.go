@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
+//nolint:paralleltest
 func TestListPools_SingleProperty(t *testing.T) {
-	t.Parallel()
-
 	runZpoolFn = func(_ string, _ ...string) *exec.Cmd {
 		return fakeCmd("testpool\tfeature@bookmarks\tenabled")
 	}
@@ -27,9 +26,8 @@ func TestListPools_SingleProperty(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestListPools_InvalidLine(t *testing.T) {
-	t.Parallel()
-
 	runZpoolFn = func(_ string, _ ...string) *exec.Cmd {
 		return fakeCmd("incomplete_line")
 	}

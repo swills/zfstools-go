@@ -7,9 +7,8 @@ import (
 
 var _ = exec.Command
 
+//nolint:paralleltest
 func TestGetUsed_Stale(t *testing.T) {
-	t.Parallel()
-
 	staleSnapshotSize = true
 	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "4096")
@@ -23,9 +22,8 @@ func TestGetUsed_Stale(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestGetUsed_NotStale(t *testing.T) {
-	t.Parallel()
-
 	staleSnapshotSize = false
 	snap := Snapshot{Name: "pool/fs@snap", Used: 1024}
 
@@ -34,9 +32,8 @@ func TestGetUsed_NotStale(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestIsZero(t *testing.T) {
-	t.Parallel()
-
 	staleSnapshotSize = false
 	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("")
@@ -53,9 +50,8 @@ func TestIsZero(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestDestroySnapshot_DryRun(t *testing.T) {
-	t.Parallel()
-
 	var ran bool
 
 	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
@@ -86,9 +82,8 @@ func TestDestroySnapshot_Real(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestListSnapshots(t *testing.T) {
-	t.Parallel()
-
 	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "pool/fs@a\t1024\n"+
 			"pool/fs@b\t0")

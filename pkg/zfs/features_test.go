@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
+//nolint:paralleltest
 func TestHasBookmarks_True(t *testing.T) {
-	t.Parallel()
-
 	resetFeatures()
 
 	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
@@ -21,9 +20,8 @@ func TestHasBookmarks_True(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestHasBookmarks_False(t *testing.T) {
-	t.Parallel()
-
 	resetFeatures()
 
 	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
@@ -37,9 +35,8 @@ func TestHasBookmarks_False(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestHasBookmarks_Error(t *testing.T) {
-	t.Parallel()
-
 	resetFeatures()
 
 	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
@@ -61,11 +58,12 @@ func resetFeatures() {
 
 type assertError string
 
-func (e assertError) Error() string { return string(e) }
+func (e assertError) Error() string {
+	return string(e)
+}
 
+//nolint:paralleltest
 func TestHasMultiSnap_True(t *testing.T) {
-	t.Parallel()
-
 	resetFeatures()
 
 	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
@@ -79,9 +77,8 @@ func TestHasMultiSnap_True(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestHasMultiSnap_False(t *testing.T) {
-	t.Parallel()
-
 	resetFeatures()
 
 	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
