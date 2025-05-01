@@ -45,3 +45,18 @@ zfs-snapshot-mysql:
     - export GOOS=freebsd
     - export GOARCH=amd64
     - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-snapshot-mysql ./cmd/zfs-snapshot-mysql
+
+lint:
+  stage: test
+  needs: []
+  tags:
+    - FreeBSD
+  script:
+    - go fmt $(go list ./...) | diff -u /dev/null -
+    - go vet $(go list ./...)
+    - export GOBIN=${HOME}/bin
+    - export PATH=${GOBIN}:${PATH}
+    - go mod tidy -v
+    - git diff | diff -u /dev/null -
+    - go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.7
+    - golangci-lint run ./...
