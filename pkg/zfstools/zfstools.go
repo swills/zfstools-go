@@ -251,7 +251,7 @@ func DatasetsDestroyZeroSizedSnapshots(grouped map[string][]zfs.Snapshot, cfg co
 }
 
 func CleanupExpiredSnapshots(cfg config.Config, pool string, datasets map[string][]zfs.Dataset) {
-	snaps, _ := zfs.ListSnapshots(pool, true, cfg.Debug)
+	snaps, _ := zfs.ListSnapshotsFn(pool, true, cfg.Debug)
 
 	var filtered []zfs.Snapshot
 

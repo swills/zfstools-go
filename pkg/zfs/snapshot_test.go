@@ -80,7 +80,7 @@ func TestListSnapshots(t *testing.T) {
 			"pool/fs@b\t0")
 	}
 
-	snaps, err := ListSnapshots("", false, false)
+	snaps, err := ListSnapshotsFn("", false, false)
 	if err != nil {
 		t.Fatalf("ListSnapshots failed: %v", err)
 	}

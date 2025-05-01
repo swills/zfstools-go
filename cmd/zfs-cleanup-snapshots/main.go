@@ -42,7 +42,7 @@ func main() {
 	}
 
 	// List all snapshots recursively
-	snapshots, err := zfs.ListSnapshots(pool, true, cfg.Debug)
+	snapshots, err := zfs.ListSnapshotsFn(pool, true, cfg.Debug)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error listing snapshots: %v\n", err)
 		os.Exit(1)
