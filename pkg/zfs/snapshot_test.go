@@ -54,7 +54,7 @@ func TestDestroySnapshot_DryRun(t *testing.T) {
 	}
 
 	staleSnapshotSize = false
-	DestroySnapshot("pool/fs@snap", false, true, false)
+	DestroySnapshot("pool/fs@snap", true, false)
 
 	if ran {
 		t.Error("expected no command to run in dry-run mode")
@@ -67,7 +67,7 @@ func TestDestroySnapshot_Real(t *testing.T) {
 	}
 
 	staleSnapshotSize = false
-	DestroySnapshot("pool/fs@snap", false, false, false)
+	DestroySnapshot("pool/fs@snap", false, false)
 
 	if !staleSnapshotSize {
 		t.Error("expected staleSnapshotSize = true after successful destroy")

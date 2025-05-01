@@ -258,13 +258,9 @@ func getArgMax() int {
 }
 
 // DestroySnapshot deletes a snapshot (and marks usage as stale)
-func DestroySnapshot(name string, recursive, dryRun, debug bool) {
+func DestroySnapshot(name string, dryRun, debug bool) {
 	staleSnapshotSize = true
 	args := []string{"destroy", "-d"}
-
-	if recursive {
-		args = append(args, "-r")
-	}
 
 	args = append(args, name)
 
