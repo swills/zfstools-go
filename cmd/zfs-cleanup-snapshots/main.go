@@ -14,7 +14,7 @@ import (
 )
 
 func usageWriter(writer io.Writer, name string) {
-	_, _ = fmt.Fprintf(writer, "Usage: %s [-dnv]", name)
+	_, _ = fmt.Fprintf(writer, "Usage: %s [-dnv]\n", name)
 	_, _ = fmt.Fprintln(writer, "    -d              Show debug output.")
 	_, _ = fmt.Fprintln(writer, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
 	_, _ = fmt.Fprintln(writer, "    -p              Create snapshots in parallel.")

@@ -18,7 +18,8 @@ func Test_usageWriter(t *testing.T) {
 		{
 			name: "simple",
 			args: args{name: "/usr/sbin/zfs-cleanup-snapshots"},
-			wantWriter: `Usage: /usr/sbin/zfs-cleanup-snapshots [-dnv]    -d              Show debug output.
+			wantWriter: `Usage: /usr/sbin/zfs-cleanup-snapshots [-dnv]
+    -d              Show debug output.
     -n              Do a dry-run. Nothing is committed. Only show what would be done.
     -p              Create snapshots in parallel.
     -P pool         Act only on the specified pool.
