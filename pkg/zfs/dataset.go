@@ -26,6 +26,8 @@ func (d *Dataset) ContainsDB(kind string) *Dataset {
 }
 
 // ListDatasets returns a list of ZFS datasets for the pool and properties
+var runZfsFn = exec.Command
+
 func ListDatasets(pool string, properties []string, debug bool) []Dataset {
 	var datasets []Dataset
 
@@ -40,7 +42,7 @@ func ListDatasets(pool string, properties []string, debug bool) []Dataset {
 		fmt.Println("zfs " + strings.Join(args, " "))
 	}
 
-	cmd := exec.Command("zfs", args...)
+	cmd := runZfsFn("zfs", args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
