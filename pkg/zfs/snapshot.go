@@ -19,11 +19,11 @@ type Snapshot struct {
 // GetUsed returns the used size of the snapshot (refreshes if stale)
 func (s *Snapshot) GetUsed(debug bool) int64 {
 	if s.Used == 0 || staleSnapshotSize {
-		cmd := exec.Command("zfs", "get", "-Hp", "-o", "value", "used", s.Name)
-
 		if debug {
 			fmt.Println("zfs get -Hp -o value used", s.Name)
 		}
+
+		cmd := exec.Command("zfs", "get", "-Hp", "-o", "value", "used", s.Name)
 
 		out, err := cmd.Output()
 
