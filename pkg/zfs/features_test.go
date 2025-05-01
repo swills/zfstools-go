@@ -56,3 +56,31 @@ func resetFeatures() {
 type assertError string
 
 func (e assertError) Error() string { return string(e) }
+
+func TestHasMultiSnap_True(t *testing.T) {
+	resetFeatures()
+
+	listPoolsFn = func(pool string, props []string, debug bool) ([]Pool, error) {
+		return []Pool{
+			{Properties: map[string]string{"feature@bookmarks": "enabled"}},
+		}, nil
+	}
+
+	if !HasMultiSnap(false) {
+		t.Fatal("expected HasMultiSnap to return true")
+	}
+}
+
+func TestHasMultiSnap_False(t *testing.T) {
+	resetFeatures()
+
+	listPoolsFn = func(pool string, props []string, debug bool) ([]Pool, error) {
+		return []Pool{
+			{Properties: map[string]string{}},
+		}, nil
+	}
+
+	if HasMultiSnap(false) {
+		t.Fatal("expected HasMultiSnap to return false")
+	}
+}
