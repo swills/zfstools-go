@@ -177,8 +177,8 @@ func FindEligibleDatasets(cfg config.Config, pool string) map[string][]zfs.Datas
 
 func DoNewSnapshots(cfg config.Config, datasets map[string][]zfs.Dataset) {
 	name := snapshotName(cfg)
-	zfs.CreateMany(name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
-	zfs.CreateMany(name, datasets["recursive"], true, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
+	createManyFn(name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
+	createManyFn(name, datasets["recursive"], true, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
 }
 
 func GroupSnapshotsIntoDatasets(snaps []zfs.Snapshot, datasets []zfs.Dataset) map[string][]zfs.Snapshot {
@@ -218,7 +218,7 @@ func destroyZeroSizedSnapshots(snaps []zfs.Snapshot, cfg config.Config) []zfs.Sn
 			}
 
 			if !cfg.DryRun {
-				zfs.DestroySnapshot(snap.Name, false, cfg.DryRun, cfg.Debug)
+				destroySnapshotFn(snap.Name, false, cfg.DryRun, cfg.Debug)
 			}
 		} else {
 			keep = append(keep, snap)
@@ -304,7 +304,7 @@ func CleanupExpiredSnapshots(cfg config.Config, pool string, datasets map[string
 			waitGroup.Add(1)
 
 			go func() {
-				zfs.DestroySnapshot(s.Name, false, cfg.DryRun, cfg.Debug)
+				destroySnapshotFn(s.Name, false, cfg.DryRun, cfg.Debug)
 				waitGroup.Done()
 			}()
 
