@@ -19,3 +19,29 @@ zfs-auto-snapshot:
     - export GOOS=freebsd
     - export GOARCH=amd64
     - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-auto-snapshot ./cmd/zfs-auto-snapshot
+
+zfs-cleanup-snapshots:
+  stage: build
+  needs: []
+  tags:
+    - FreeBSD
+  script:
+    - export GOFLAGS="-trimpath"
+    - export GOPROXY=https://athens.mouf.io
+    - export GO_LDFLAGS="-s -w -extldflags -static -buildid=${CI_COMMIT_SHA}"
+    - export GOOS=freebsd
+    - export GOARCH=amd64
+    - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-cleanup-snapshots ./cmd/zfs-cleanup-snapshots
+
+zfs-snapshot-mysql:
+  stage: build
+  needs: []
+  tags:
+    - FreeBSD
+  script:
+    - export GOFLAGS="-trimpath"
+    - export GOPROXY=https://athens.mouf.io
+    - export GO_LDFLAGS="-s -w -extldflags -static -buildid=${CI_COMMIT_SHA}"
+    - export GOOS=freebsd
+    - export GOARCH=amd64
+    - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-snapshot-mysql ./cmd/zfs-snapshot-mysql
