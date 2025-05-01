@@ -18,13 +18,6 @@ func (d Dataset) Equals(other Dataset) bool {
 	return d.Name == other.Name
 }
 
-// ContainsDB marks this dataset as containing a DB
-func (d *Dataset) ContainsDB(kind string) *Dataset {
-	d.DB = kind
-
-	return d
-}
-
 // ListDatasets returns a list of ZFS datasets for the pool and properties
 var runZfsFn = exec.Command
 
@@ -85,7 +78,7 @@ func ListDatasets(pool string, properties []string, debug bool) []Dataset {
 		db, ok := props["com.sun:auto-snapshot"]
 		if ok {
 			if db == "mysql" || db == "postgresql" {
-				dataset.ContainsDB(db)
+				dataset.DB = db
 			}
 		}
 
