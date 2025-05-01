@@ -18,4 +18,4 @@ zfs-auto-snapshot:
     - export GO_LDFLAGS="-s -w -extldflags -static -buildid=${CI_COMMIT_SHA}"
     - export GOOS=freebsd
     - export GOARCH=amd64
-    - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-auto-snapshot .cmd/zfs-auto-snapshot
+    - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-auto-snapshot ./cmd/zfs-auto-snapshot
