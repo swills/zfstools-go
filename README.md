@@ -84,4 +84,3 @@ Usage: /usr/local/sbin/zfs-snapshot-mysql [-dnv] DATASET
 ## Credits
 
 Originally written in Ruby by Bryan Drewery  
-Go version by Steve Wills
