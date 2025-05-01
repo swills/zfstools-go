@@ -4,6 +4,8 @@ import (
 	"sync"
 )
 
+var listPoolsFn = ListPools
+
 var (
 	onceBookmarks sync.Once
 	onceMultiSnap sync.Once
@@ -15,7 +17,7 @@ var (
 // HasBookmarks checks for support of 'feature@bookmarks'
 func HasBookmarks(debug bool) bool {
 	onceBookmarks.Do(func() {
-		pools, err := ListPools("", []string{"feature@bookmarks"}, debug)
+		pools, err := listPoolsFn("", []string{"feature@bookmarks"}, debug)
 		if err != nil {
 			haveBookmarks = false
 
