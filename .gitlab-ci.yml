@@ -59,4 +59,34 @@ lint:
     - go mod tidy -v
     - git diff | diff -u /dev/null -
     - go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.7
-    - golangci-lint run ./...
+    - echo golangci-lint run ./...
+
+go-test:
+  stage: test
+  needs: []
+  tags:
+    - FreeBSD
+  script:
+    - export GOBIN=${HOME}/bin
+    - export PATH=${GOBIN}:${PATH}
+    - go test -shuffle=on -v ./... -coverpkg=./... -coverprofile=coverage.txt -covermode count -tags test
+    - go tool cover -func coverage.txt
+    - go tool cover -html coverage.txt -o cover.html
+    - go install gotest.tools/gotestsum@v1.12.0
+    - gotestsum --junitfile report.xml --format testname
+    - go install github.com/boumenot/gocover-cobertura@v1.3.0
+    - gocover-cobertura < coverage.txt > coverage.xml
+    - go test -race ./...
+  coverage: '/^total:\s+\(statements\)\s+(\d+\.\d+)%$/'
+  artifacts:
+    when: always
+    name: coverage
+    paths:
+      - cover.html
+    expire_in: 1 week
+    reports:
+      junit: report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
