@@ -73,20 +73,60 @@ func TestSnapshot_GetUsed(t *testing.T) {
 }
 
 //nolint:paralleltest
-func TestIsZero(t *testing.T) {
-	staleSnapshotSize = false
-	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
-		return exec.Command("")
+func TestSnapshot_IsZero(t *testing.T) {
+	type fields struct {
+		Name string
+		Used int64
 	}
 
-	snap := Snapshot{Name: "pool/fs@snap", Used: 0}
-	if !snap.IsZero(false) {
-		t.Error("expected IsZero to return true for Used=0")
+	type args struct {
+		debug bool
 	}
 
-	snap.Used = 123
-	if snap.IsZero(false) {
-		t.Error("expected IsZero to return false for Used=123")
+	tests := []struct {
+		name        string
+		mockCmdFunc string
+		fields      fields
+		args        args
+		want        bool
+	}{
+		{
+			name: "true",
+			fields: fields{
+				Name: "pool1/fs1@snap",
+				Used: 0,
+			},
+			mockCmdFunc: "TestSnapshot_IsZeroTrue",
+			args:        args{debug: false},
+			want:        true,
+		},
+		{
+			name: "false",
+			fields: fields{
+				Name: "pool1/fs2@snap",
+				Used: 123,
+			},
+			mockCmdFunc: "TestSnapshot_IsZeroTrue", // not used
+			args:        args{debug: false},
+			want:        false,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			staleSnapshotSize = false
+			runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+
+			s := &Snapshot{
+				Name: testCase.fields.Name,
+				Used: testCase.fields.Used,
+			}
+
+			got := s.IsZero(testCase.args.debug)
+			if got != testCase.want {
+				t.Errorf("IsZero() = %v, want %v", got, testCase.want)
+			}
+		})
 	}
 }
 
@@ -255,6 +295,33 @@ func TestSnapshot_GetUsedStale(_ *testing.T) {
 	}
 
 	fmt.Printf("4096\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestSnapshot_IsZeroTrue(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"get",
+		"-Hp",
+		"-o",
+		"value",
+		"used",
+		"pool1/fs1@snap",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("0\n") //nolint:forbidigo
 
 	os.Exit(0)
 }

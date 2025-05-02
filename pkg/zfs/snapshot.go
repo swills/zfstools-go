@@ -30,7 +30,10 @@ func (s *Snapshot) GetUsed(debug bool) int64 {
 			return 0
 		}
 
-		s.Used, _ = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+		s.Used, err = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+		if err != nil {
+			s.Used = 0
+		}
 	}
 
 	return s.Used
