@@ -1,0 +1,30 @@
+name: Go
+on: [push]
+
+env:
+  GOGC: 50
+  CGO_ENABLED: 0
+
+jobs:
+  build:
+    runs-on: arc-runner-set-zfstools
+    strategy:
+      matrix:
+        os: [ 'freebsd', 'linux']
+        arch: [ 'amd64', 'arm64']
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: Install dependencies
+        run: go get .
+      - name: Build
+        run: |
+          export GOOS=${{ matrix.os }}
+          export GOARCH=${{ matrix.arch }}
+          go build -o zfs-auto-snapshot-${GOOS}-${GOARCH} ./cmd/zfs-auto-snapshot
+          go build -o zfs-cleanup-snapshots-${GOOS}-${GOARCH} ./cmd/zfs-cleanup-snapshots
+          go build -o zfs-snapshot-mysql-${GOOS}-${GOARCH} ./cmd/zfs-snapshot-mysql
