@@ -2,6 +2,7 @@ package zfs
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,6 +10,10 @@ import (
 )
 
 var staleSnapshotSize = false
+
+var ErrEmptySnapshotName = errors.New("empty snapshot name")
+
+var ErrInvalidSnapshotName = errors.New("invalid snapshot name")
 
 type Snapshot struct {
 	Name string
@@ -109,7 +114,17 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 }
 
 // CreateSnapshot creates a single snapshot or a group of snapshots
-func CreateSnapshot(targets []string, recursive bool, dbName string, dryRun, verbose, debug bool) {
+func CreateSnapshot(targets []string, recursive bool, dbName string, dryRun, verbose, debug bool) error {
+	if len(targets) < 1 {
+		return ErrEmptySnapshotName
+	}
+
+	for _, v := range targets {
+		if !strings.Contains(v, "@") || v == "" {
+			return fmt.Errorf("%w: %s", ErrInvalidSnapshotName, v)
+		}
+	}
+
 	base := []string{"zfs", "snapshot"}
 	if recursive {
 		base = append(base, "-r")
@@ -134,9 +149,16 @@ UNLOCK TABLES;`, cmdStr)
 		fmt.Println(cmdStr) //nolint:forbidigo
 	}
 
+	var err error
+
 	if !dryRun {
-		_ = runZfsFn("sh", "-c", cmdStr).Run()
+		err = runZfsFn("sh", "-c", cmdStr).Run()
+		if err != nil {
+			return fmt.Errorf("error creating snapshot: %w", err)
+		}
 	}
+
+	return nil
 }
 
 // CreateManySnapshots handles parallel and multi-snapshot creation
@@ -199,7 +221,7 @@ func CreateManySnapshots(snapshotName string, datasets []Dataset, recursive bool
 					end = len(snaps)
 				}
 
-				CreateSnapshot(snaps[index:end], recursive, "", dryRun, verbose, debug)
+				_ = CreateSnapshot(snaps[index:end], recursive, "", dryRun, verbose, debug)
 			}
 		}
 
@@ -217,7 +239,8 @@ func CreateManySnapshots(snapshotName string, datasets []Dataset, recursive bool
 
 		go func(name, db string) {
 			defer waitGroup.Done()
-			CreateSnapshot([]string{name}, recursive, db, dryRun, verbose, debug)
+
+			_ = CreateSnapshot([]string{name}, recursive, db, dryRun, verbose, debug)
 		}(snap, dbName)
 
 		if !useThreads {
