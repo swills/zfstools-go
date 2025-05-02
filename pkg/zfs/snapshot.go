@@ -44,32 +44,6 @@ func (s *Snapshot) IsZero(debug bool) bool {
 	return s.GetUsed(debug) == 0
 }
 
-// toIntPrefix is designed to act like Ruby's `to_i`, it parses the numbers it can any
-// trailing letters, etc.
-func toIntPrefix(s string) int64 {
-	s = strings.TrimSpace(s)
-	digits := ""
-
-	for _, r := range s {
-		if r >= '0' && r <= '9' {
-			digits += string(r)
-		} else {
-			break
-		}
-	}
-
-	if digits == "" {
-		return 0
-	}
-
-	val, err := strconv.ParseInt(digits, 10, 64)
-	if err != nil {
-		return 0 // can't happen
-	}
-
-	return val
-}
-
 // ListSnapshots returns all snapshots, optionally recursive
 func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, error) {
 	args := []string{"list"}
@@ -116,8 +90,14 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 			continue
 		}
 
-		size := toIntPrefix(parts[1])
-		snapshots = append(snapshots, Snapshot{Name: parts[0], Used: size})
+		var size int
+
+		size, err = strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+
+		snapshots = append(snapshots, Snapshot{Name: parts[0], Used: int64(size)})
 	}
 
 	err = cmd.Wait()

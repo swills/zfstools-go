@@ -343,57 +343,6 @@ func TestCreateMany(t *testing.T) {
 	}
 }
 
-func Test_toIntPrefix(t *testing.T) {
-	type args struct {
-		s string
-	}
-
-	tests := []struct {
-		name string
-		args args
-		want int64
-	}{
-		{
-			name: "empty",
-			args: args{s: ""},
-			want: 0,
-		},
-		{
-			name: "zero",
-			args: args{s: "0"},
-			want: 0,
-		},
-		{
-			name: "zeroB",
-			args: args{s: "0B"},
-			want: 0,
-		},
-		{
-			name: "numK",
-			args: args{s: "123K"},
-			want: 123,
-		},
-		{
-			name: "numG",
-			args: args{s: "234G"},
-			want: 234,
-		},
-	}
-
-	t.Parallel()
-
-	for _, testCase := range tests {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := toIntPrefix(testCase.args.s)
-			if got != testCase.want {
-				t.Errorf("toIntPrefix() = %v, want %v", got, testCase.want)
-			}
-		})
-	}
-}
-
 // test helpers from here down
 
 //nolint:paralleltest
