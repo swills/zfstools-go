@@ -34,7 +34,6 @@ func (s *Snapshot) GetUsed(debug bool) int64 {
 		cmd := runZfsFn("zfs", "get", "-Hp", "-o", "value", "used", s.Name)
 
 		out, err := cmd.Output()
-
 		if err != nil {
 			return 0
 		}
@@ -294,12 +293,18 @@ func CreateManySnapshots(snapshotName string, datasets []Dataset, recursive bool
 }
 
 func getArgMax() int {
-	out, err := runZfsFn("getconf", "ARG_MAX").Output()
+	var err error
+
+	var out []byte
+
+	var val int
+
+	out, err = runZfsFn("getconf", "ARG_MAX").Output()
 	if err != nil {
 		return 4096 // conservative fallback
 	}
 
-	val, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	val, err = strconv.Atoi(strings.TrimSpace(string(out)))
 	if err != nil {
 		return 4096
 	}
