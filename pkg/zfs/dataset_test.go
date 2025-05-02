@@ -85,6 +85,67 @@ func TestListDatasets(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "mySQLAndPostgreSQL",
+			args: args{
+				pool:       "dozer",
+				properties: []string{"com.sun:auto-snapshot"},
+				debug:      false,
+			},
+			mockCmdFunc: "TestListDatasets_MySQLAndPostgreSQL",
+			want: []Dataset{
+				{
+					Name: "dozer",
+					Properties: map[string]string{
+						"type": "filesystem",
+					},
+					DB: "",
+				},
+				{
+					Name: "dozer/mysql",
+					Properties: map[string]string{
+						"type":                  "filesystem",
+						"com.sun:auto-snapshot": "mysql",
+					},
+					DB: "mysql",
+				},
+				{
+					Name: "dozer/postgresql",
+					Properties: map[string]string{
+						"type":                  "filesystem",
+						"com.sun:auto-snapshot": "postgresql",
+					},
+					DB: "postgresql",
+				},
+			},
+		},
+		{
+			name: "shortLine",
+			args: args{
+				pool:       "",
+				properties: []string{"mysql", "com.sun:auto-snapshot"},
+				debug:      false,
+			},
+			mockCmdFunc: "TestListDatasets_EmptyPoolNameShortLine",
+			want: []Dataset{
+				{
+					Name: "pool/fs1",
+					Properties: map[string]string{
+						"type":  "filesystem",
+						"mysql": "mysql",
+					},
+					DB: "",
+				},
+				{
+					Name: "pool/fs2",
+					Properties: map[string]string{
+						"type":                  "filesystem",
+						"com.sun:auto-snapshot": "true",
+					},
+					DB: "",
+				},
+			},
+		},
 	}
 
 	for _, testCase := range tests {
@@ -175,6 +236,66 @@ func TestListDatasets_PoolNameSet(_ *testing.T) {
 	}
 
 	fmt.Printf("tank\tfilesystem\t-\ntank/ROOT\tfilesystem\t-\ntank/ROOT/default\tfilesystem\ttrue\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListDatasets_MySQLAndPostgreSQL(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-H",
+		"-t",
+		"filesystem,volume",
+		"-o",
+		"name,type,com.sun:auto-snapshot",
+		"-s",
+		"name",
+		"-r",
+		"dozer",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("dozer\tfilesystem\t-\ndozer/mysql\tfilesystem\tmysql\ndozer/postgresql\tfilesystem\tpostgresql\n") //nolint:forbidigo,lll
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListDatasets_EmptyPoolNameShortLine(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-H",
+		"-t",
+		"filesystem,volume",
+		"-o",
+		"name,type,mysql,com.sun:auto-snapshot",
+		"-s",
+		"name",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("bogus\npool/fs1\tfilesystem\tmysql\t-\npool/fs2\tfilesystem\t-\ttrue\n") //nolint:forbidigo
 
 	os.Exit(0)
 }

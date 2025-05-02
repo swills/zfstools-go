@@ -54,20 +54,17 @@ func ListDatasets(pool string, properties []string, debug bool) []Dataset {
 		}
 
 		name := values[0]
-		typ := values[1]
-		props := map[string]string{"type": typ}
+		values = values[1:] // emulate Ruby .shift
+		props := map[string]string{"type": values[0]}
+		values = values[1:] // emulate Ruby .shift
 
 		for i, prop := range properties {
-			if i+2 >= len(values) {
+			value := values[i]
+			if value == "-" {
 				continue
 			}
 
-			val := values[i+2]
-			if val == "-" {
-				continue
-			}
-
-			props[prop] = val
+			props[prop] = value
 		}
 
 		dataset := Dataset{Name: name, Properties: props}
