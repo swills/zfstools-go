@@ -253,6 +253,17 @@ func TestListSnapshots(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name:        "getAllOneFoundBogusSize",
+			mockCmdFunc: "TestListSnapshots_getAllOneFoundBogusSize",
+			args: args{
+				dataset:   "",
+				recursive: false,
+				debug:     false,
+			},
+			want:    []Snapshot{},
+			wantErr: false,
+		},
 	}
 
 	for _, testCase := range tests {
@@ -647,6 +658,36 @@ func TestListSnapshots_getOneRecursiveOneFound(_ *testing.T) {
 	}
 
 	fmt.Printf("tank/data@backup1\t131072\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListSnapshots_getAllOneFoundBogusSize(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-H",
+		"-p",
+		"-t",
+		"snapshot",
+		"-o",
+		"name,used",
+		"-S",
+		"name",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("tank/data@backup\tonetwothree\n") //nolint:forbidigo
 
 	os.Exit(0)
 }
