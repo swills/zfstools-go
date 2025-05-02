@@ -328,7 +328,7 @@ func TestCreate(t *testing.T) {
 		return exec.Command("echo")
 	}
 
-	Create([]string{"pool/fs@snap"}, false, "", false, true, true)
+	CreateSnapshot([]string{"pool/fs@snap"}, false, "", false, true, true)
 
 	if !ran {
 		t.Error("expected zfs snapshot to run")
@@ -344,7 +344,7 @@ func TestCreateMany(t *testing.T) {
 		return exec.Command("echo")
 	}
 
-	CreateMany("auto-2025-01-01", []Dataset{
+	CreateManySnapshots("auto-2025-01-01", []Dataset{
 		{Name: "pool/fs@a"},
 		{Name: "pool/fs@b"},
 	}, false, false, true, true, false)

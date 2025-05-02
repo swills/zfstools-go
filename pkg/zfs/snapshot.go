@@ -108,8 +108,8 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 	return snapshots, nil
 }
 
-// Create creates a single snapshot or a group of snapshots
-func Create(targets []string, recursive bool, dbName string, dryRun, verbose, debug bool) {
+// CreateSnapshot creates a single snapshot or a group of snapshots
+func CreateSnapshot(targets []string, recursive bool, dbName string, dryRun, verbose, debug bool) {
 	base := []string{"zfs", "snapshot"}
 	if recursive {
 		base = append(base, "-r")
@@ -139,8 +139,8 @@ UNLOCK TABLES;`, cmdStr)
 	}
 }
 
-// CreateMany handles parallel and multi-snapshot creation
-func CreateMany(snapshotName string, datasets []Dataset, recursive bool, dryRun, verbose, debug, useThreads bool) {
+// CreateManySnapshots handles parallel and multi-snapshot creation
+func CreateManySnapshots(snapshotName string, datasets []Dataset, recursive bool, dryRun, verbose, debug, useThreads bool) { //nolint:lll
 	if len(datasets) == 0 {
 		return
 	}
@@ -159,7 +159,7 @@ func CreateMany(snapshotName string, datasets []Dataset, recursive bool, dryRun,
 	}
 
 	if len(dbDatasets) > 0 {
-		CreateMany(snapshotName, dbDatasets, recursive, dryRun, verbose, debug, useThreads)
+		CreateManySnapshots(snapshotName, dbDatasets, recursive, dryRun, verbose, debug, useThreads)
 	}
 
 	// If multi-snapshot is supported, use pooled batching
@@ -199,7 +199,7 @@ func CreateMany(snapshotName string, datasets []Dataset, recursive bool, dryRun,
 					end = len(snaps)
 				}
 
-				Create(snaps[index:end], recursive, "", dryRun, verbose, debug)
+				CreateSnapshot(snaps[index:end], recursive, "", dryRun, verbose, debug)
 			}
 		}
 
@@ -217,7 +217,7 @@ func CreateMany(snapshotName string, datasets []Dataset, recursive bool, dryRun,
 
 		go func(name, db string) {
 			defer waitGroup.Done()
-			Create([]string{name}, recursive, db, dryRun, verbose, debug)
+			CreateSnapshot([]string{name}, recursive, db, dryRun, verbose, debug)
 		}(snap, dbName)
 
 		if !useThreads {
