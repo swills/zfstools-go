@@ -13,10 +13,12 @@ var destroyedSnapshots []string
 func init() {
 	createdSnapshots = nil
 	destroyedSnapshots = nil
-	createManySnapshotsFn = func(name string, datasets []zfs.Dataset, _, _, _, _, _ bool) {
+	createManySnapshotsFn = func(name string, datasets []zfs.Dataset, _, _, _, _, _ bool) error {
 		for _, ds := range datasets {
 			createdSnapshots = append(createdSnapshots, ds.Name+"@"+name)
 		}
+
+		return nil
 	}
 	destroySnapshotFn = func(name string, _, _ bool) {
 		destroyedSnapshots = append(destroyedSnapshots, name)

@@ -15,6 +15,10 @@ var ErrEmptySnapshotName = errors.New("empty snapshot name")
 
 var ErrInvalidSnapshotName = errors.New("invalid snapshot name")
 
+var ErrNoDatasets = errors.New("no dataset(s) specified")
+
+var ErrOneSnapshotOfManyErrored = errors.New("some snapshots failed to create")
+
 type Snapshot struct {
 	Name string
 	Used int64
@@ -113,7 +117,8 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 	return snapshots, nil
 }
 
-// CreateSnapshot creates a single snapshot or a group of snapshots
+// CreateSnapshot creates a single snapshot or a group of snapshots. targets is a slice of snapshot
+// names such as "pool/fs@snapname" -- they MUST include the snapshot name
 func CreateSnapshot(targets []string, recursive bool, dbName string, dryRun, verbose, debug bool) error {
 	if len(targets) < 1 {
 		return ErrEmptySnapshotName
@@ -161,10 +166,22 @@ UNLOCK TABLES;`, cmdStr)
 	return nil
 }
 
-// CreateManySnapshots handles parallel and multi-snapshot creation
-func CreateManySnapshots(snapshotName string, datasets []Dataset, recursive bool, dryRun, verbose, debug, useThreads bool) { //nolint:lll
-	if len(datasets) == 0 {
-		return
+// CreateManySnapshots handles parallel and multi-snapshot creation - datasets is a slice of datasets to snapshot,
+// either recursively or not, with the same snapshot name specified in snapshotName. the dataset.Name MUST NOT
+// include the snapshot name.
+func CreateManySnapshots(snapshotName string, datasets []Dataset, recursive bool, dryRun, verbose, debug, useThreads bool) error { //nolint:lll,gocognit,cyclop,funlen
+	if snapshotName == "" {
+		return ErrEmptySnapshotName
+	}
+
+	if len(datasets) < 1 {
+		return ErrNoDatasets
+	}
+
+	for _, v := range datasets {
+		if strings.Contains(v.Name, "@") || v.Name == "" {
+			return fmt.Errorf("%w: %s", ErrInvalidSnapshotName, v)
+		}
 	}
 
 	// Split out DB datasets
@@ -181,11 +198,15 @@ func CreateManySnapshots(snapshotName string, datasets []Dataset, recursive bool
 	}
 
 	if len(dbDatasets) > 0 {
-		CreateManySnapshots(snapshotName, dbDatasets, recursive, dryRun, verbose, debug, useThreads)
+		_ = CreateManySnapshots(snapshotName, dbDatasets, recursive, dryRun, verbose, debug, useThreads)
 	}
 
+	var err error
+
+	var atLeastOneErr bool
+
 	// If multi-snapshot is supported, use pooled batching
-	if HasMultiSnap(debug) {
+	if HasMultiSnap(debug) { //nolint:nestif
 		var snapshots []string
 
 		maxLen := 0
@@ -221,11 +242,21 @@ func CreateManySnapshots(snapshotName string, datasets []Dataset, recursive bool
 					end = len(snaps)
 				}
 
-				_ = CreateSnapshot(snaps[index:end], recursive, "", dryRun, verbose, debug)
+				// continue trying all the snapshots, but note the error
+				err = CreateSnapshot(snaps[index:end], recursive, "", dryRun, verbose, debug)
+				if err != nil {
+					if !atLeastOneErr {
+						atLeastOneErr = true
+					}
+				}
 			}
 		}
 
-		return
+		if atLeastOneErr {
+			return ErrOneSnapshotOfManyErrored
+		}
+
+		return nil
 	}
 
 	// fallback: serial or threaded single snapshot
@@ -240,7 +271,12 @@ func CreateManySnapshots(snapshotName string, datasets []Dataset, recursive bool
 		go func(name, db string) {
 			defer waitGroup.Done()
 
-			_ = CreateSnapshot([]string{name}, recursive, db, dryRun, verbose, debug)
+			err = CreateSnapshot([]string{name}, recursive, db, dryRun, verbose, debug)
+			if err != nil {
+				if !atLeastOneErr {
+					atLeastOneErr = true
+				}
+			}
 		}(snap, dbName)
 
 		if !useThreads {
@@ -249,6 +285,12 @@ func CreateManySnapshots(snapshotName string, datasets []Dataset, recursive bool
 	}
 
 	waitGroup.Wait()
+
+	if atLeastOneErr {
+		return ErrOneSnapshotOfManyErrored
+	}
+
+	return nil
 }
 
 func getArgMax() int {

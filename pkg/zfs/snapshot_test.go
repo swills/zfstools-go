@@ -465,6 +465,193 @@ func TestCreateSnapshot(t *testing.T) {
 }
 
 //nolint:paralleltest
+func TestCreateManySnapshots(t *testing.T) {
+	type args struct {
+		snapshotName string
+		datasets     []Dataset
+		recursive    bool
+		dryRun       bool
+		verbose      bool
+		debug        bool
+		useThreads   bool
+	}
+
+	tests := []struct {
+		name        string
+		mockCmdFunc string
+		args        args
+		bookmarks   bool
+		wantErr     bool
+	}{
+		{
+			name:        "emptySnapName",
+			mockCmdFunc: "TestCreateManySnapshots_simple", // shouldn't be called
+			args: args{
+				snapshotName: "",
+				datasets: []Dataset{
+					{Name: "pool/fs1"},
+					{Name: "pool/fs2"},
+				},
+				recursive:  false,
+				dryRun:     false,
+				verbose:    false,
+				debug:      false,
+				useThreads: false,
+			},
+			wantErr: true,
+		},
+		{
+			name:        "nilDatasets",
+			mockCmdFunc: "TestCreateManySnapshots_simple", // shouldn't be called
+			args: args{
+				snapshotName: "auto-2025-01-01",
+				datasets:     nil,
+				recursive:    false,
+				dryRun:       false,
+				verbose:      false,
+				debug:        false,
+				useThreads:   false,
+			},
+			wantErr: true,
+		},
+		{
+			name:        "datasetNameEmpty",
+			mockCmdFunc: "TestCreateManySnapshots_simple", // shouldn't be called
+			args: args{
+				snapshotName: "auto-2025-01-01",
+				datasets: []Dataset{
+					{Name: "pool/fs1"},
+					{Name: ""},
+				},
+				recursive:  false,
+				dryRun:     false,
+				verbose:    false,
+				debug:      false,
+				useThreads: false,
+			},
+			wantErr: true,
+		},
+		{
+			name:        "datasetNameContainsAt",
+			mockCmdFunc: "TestCreateManySnapshots_simple", // shouldn't be called
+			args: args{
+				snapshotName: "auto-2025-01-01",
+				datasets: []Dataset{
+					{Name: "pool/fs1"},
+					{Name: "pool/fs2@snapname"},
+				},
+				recursive:  false,
+				dryRun:     false,
+				verbose:    false,
+				debug:      false,
+				useThreads: false,
+			},
+			wantErr: true,
+		},
+		{
+			name:        "simpleWithBookmarks",
+			mockCmdFunc: "TestCreateManySnapshots_simpleWithBookmarks",
+			bookmarks:   true,
+			args: args{
+				snapshotName: "auto-2025-01-01",
+				datasets: []Dataset{
+					{Name: "pool/fs1"},
+					{Name: "pool/fs2"},
+				},
+				recursive:  false,
+				dryRun:     false,
+				verbose:    false,
+				debug:      false,
+				useThreads: false,
+			},
+			wantErr: false,
+		},
+		{
+			name:        "simpleWithoutBookmarks",
+			mockCmdFunc: "TestCreateManySnapshots_simpleWithoutBookmarks",
+			bookmarks:   false,
+			args: args{
+				snapshotName: "auto-2025-01-01",
+				datasets: []Dataset{
+					{Name: "pool/fs1"},
+					{Name: "pool/fs2"},
+				},
+				recursive:  false,
+				dryRun:     false,
+				verbose:    false,
+				debug:      false,
+				useThreads: false,
+			},
+			wantErr: false,
+		},
+		{
+			name:        "oneSnapshotOfManyErroredWithBookmarks",
+			mockCmdFunc: "TestCreateManySnapshots_oneSnapshotOfManyErroredWithBookmarks",
+			bookmarks:   true,
+			args: args{
+				snapshotName: "auto-2025-01-01",
+				datasets: []Dataset{
+					{Name: "pool/fs1"},
+					{Name: "pool/fs2"},
+				},
+				recursive:  false,
+				dryRun:     false,
+				verbose:    false,
+				debug:      false,
+				useThreads: false,
+			},
+			wantErr: true,
+		},
+		{
+			name:        "oneSnapshotOfManyErroredWithoutBookmarks",
+			mockCmdFunc: "TestCreateManySnapshots_oneSnapshotOfManyErroredWithoutBookmarks",
+			bookmarks:   false,
+			args: args{
+				snapshotName: "auto-2025-01-01",
+				datasets: []Dataset{
+					{Name: "pool/fs1"},
+					{Name: "pool/fs2"},
+				},
+				recursive:  false,
+				dryRun:     false,
+				verbose:    false,
+				debug:      false,
+				useThreads: false,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, testCase := range tests {
+		runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+		// ensure we control for bookmark feature support detection
+		runZpoolFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+
+		t.Run(testCase.name, func(t *testing.T) {
+			// bookmark/multisnap support may have been detected already (on or off), but make sure we force it to
+			// what we need for this test case
+			if testCase.bookmarks {
+				haveBookmarks = true
+				haveMultiSnap = true
+			} else {
+				haveBookmarks = false
+				haveMultiSnap = false
+			}
+
+			err := CreateManySnapshots(testCase.args.snapshotName, testCase.args.datasets,
+				testCase.args.recursive, testCase.args.dryRun, testCase.args.verbose,
+				testCase.args.debug, testCase.args.useThreads)
+
+			if (err != nil) != testCase.wantErr {
+				t.Errorf("CreateManySnapshots() error = %v, wantErr %v", err, testCase.wantErr)
+
+				return
+			}
+		})
+	}
+}
+
+//nolint:paralleltest
 func TestDestroySnapshot_DryRun(t *testing.T) {
 	var ran bool
 
@@ -493,25 +680,6 @@ func TestDestroySnapshot_Real(t *testing.T) {
 
 	if !staleSnapshotSize {
 		t.Error("expected staleSnapshotSize = true after successful destroy")
-	}
-}
-
-//nolint:paralleltest
-func TestCreateMany(t *testing.T) {
-	count := 0
-	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
-		count++
-
-		return exec.Command("echo")
-	}
-
-	CreateManySnapshots("auto-2025-01-01", []Dataset{
-		{Name: "pool/fs@a"},
-		{Name: "pool/fs@b"},
-	}, false, false, true, true, false)
-
-	if count != 2 {
-		t.Errorf("expected 2 snapshots to be created, got %d", count)
 	}
 }
 
@@ -993,6 +1161,129 @@ func TestCreateSnapshot_forceError(_ *testing.T) {
 	if !zfstoolstest.IsTestEnv() {
 		return
 	}
+
+	os.Exit(1)
+}
+
+//nolint:paralleltest
+func TestCreateManySnapshots_simpleWithBookmarks(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	// simulate the zpool call used to detect bookmarks feature
+	for _, v := range cmdWithArgs {
+		if v == "feature@bookmarks" {
+			fmt.Printf("tank\tfeature@bookmarks\tenabled\n") //nolint:forbidigo
+			os.Exit(0)
+		}
+	}
+
+	expectedCmdWithArgs := []string{
+		"sh",
+		"-c",
+		"zfs snapshot pool/fs1@auto-2025-01-01 pool/fs2@auto-2025-01-01",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestCreateManySnapshots_simpleWithoutBookmarks(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	// simulate the zpool call used to detect bookmarks feature - this time without bookmarks supported
+	for _, v := range cmdWithArgs {
+		if v == "feature@bookmarks" {
+			os.Exit(0)
+		}
+	}
+
+	expectedFirstCmdWithArgs := []string{
+		"sh",
+		"-c",
+		"zfs snapshot pool/fs1@auto-2025-01-01",
+	}
+
+	expectedSecondCmdWithArgs := []string{
+		"sh",
+		"-c",
+		"zfs snapshot pool/fs2@auto-2025-01-01",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedFirstCmdWithArgs) == nil ||
+		deep.Equal(cmdWithArgs, expectedSecondCmdWithArgs) == nil {
+		os.Exit(0)
+	}
+
+	os.Exit(1)
+}
+
+//nolint:paralleltest
+func TestCreateManySnapshots_oneSnapshotOfManyErroredWithBookmarks(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	// simulate the zpool call used to detect bookmarks feature
+	for _, v := range cmdWithArgs {
+		if v == "feature@bookmarks" {
+			fmt.Printf("tank\tfeature@bookmarks\tenabled\n") //nolint:forbidigo
+			os.Exit(0)
+		}
+	}
+
+	expectedCmdWithArgs := []string{
+		"sh",
+		"-c",
+		"zfs snapshot pool/fs1@auto-2025-01-01 pool/fs2@auto-2025-01-01",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(0)
+	}
+
+	os.Exit(1)
+}
+
+//nolint:paralleltest
+func TestCreateManySnapshots_oneSnapshotOfManyErroredWithoutBookmarks(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	// simulate the zpool call used to detect bookmarks feature - this time without bookmarks supported
+	for _, v := range cmdWithArgs {
+		if v == "feature@bookmarks" {
+			os.Exit(0)
+		}
+	}
+
+	expectedFirstCmdWithArgs := []string{
+		"sh",
+		"-c",
+		"zfs snapshot pool/fs1@auto-2025-01-01",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedFirstCmdWithArgs) == nil {
+		os.Exit(0)
+	}
+
+	// second command will be `sh -c zfs snapshot pool/fs2@auto-2025-01-01`, which we let fail
 
 	os.Exit(1)
 }

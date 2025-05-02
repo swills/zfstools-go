@@ -178,8 +178,8 @@ func FindEligibleDatasets(cfg config.Config, pool string) map[string][]zfs.Datas
 
 func DoNewSnapshots(cfg config.Config, datasets map[string][]zfs.Dataset) {
 	name := snapshotName(cfg)
-	createManySnapshotsFn(name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
-	createManySnapshotsFn(name, datasets["recursive"], true, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
+	_ = createManySnapshotsFn(name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
+	_ = createManySnapshotsFn(name, datasets["recursive"], true, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
 }
 
 func GroupSnapshotsIntoDatasets(snaps []zfs.Snapshot, datasets []zfs.Dataset) map[string][]zfs.Snapshot {
