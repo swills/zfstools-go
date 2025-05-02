@@ -20,7 +20,10 @@ jobs:
         with:
           go-version-file: 'go.mod'
       - name: Install dependencies
-        run: go get .
+        run: |
+          go get ./cmd/zfs-auto-snapshot
+          go get ./cmd/zfs-cleanup-snapshots
+          go get ./cmd/zfs-snapshot-mysql
       - name: Build
         run: |
           export GOOS=${{ matrix.os }}
