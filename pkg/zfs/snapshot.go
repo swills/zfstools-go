@@ -90,14 +90,14 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 			continue
 		}
 
-		var size int
+		var size int64
 
-		size, err = strconv.Atoi(parts[1])
+		size, err = strconv.ParseInt(parts[1], 10, 64)
 		if err != nil {
 			continue
 		}
 
-		snapshots = append(snapshots, Snapshot{Name: parts[0], Used: int64(size)})
+		snapshots = append(snapshots, Snapshot{Name: parts[0], Used: size})
 	}
 
 	err = cmd.Wait()
