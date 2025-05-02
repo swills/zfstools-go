@@ -82,7 +82,7 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 		args = append(args, "-r")
 	}
 
-	args = append(args, "-H", "-t", "snapshot", "-o", "name,used", "-S", "name")
+	args = append(args, "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name")
 
 	if dataset != "" {
 		args = append(args, dataset)
@@ -105,6 +105,8 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 	}
 
 	var snapshots []Snapshot
+
+	snapshots = []Snapshot{}
 
 	scanner := bufio.NewScanner(stdout)
 

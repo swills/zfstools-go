@@ -131,6 +131,151 @@ func TestSnapshot_IsZero(t *testing.T) {
 }
 
 //nolint:paralleltest
+func TestListSnapshots(t *testing.T) {
+	type args struct {
+		dataset   string
+		recursive bool
+		debug     bool
+	}
+
+	tests := []struct {
+		name        string
+		args        args
+		mockCmdFunc string
+		want        []Snapshot
+		wantErr     bool
+	}{
+		{
+			name:        "getAllNoneFound",
+			mockCmdFunc: "TestListSnapshots_getAllNoneFound",
+			args: args{
+				dataset:   "",
+				recursive: false,
+				debug:     false,
+			},
+			want:    []Snapshot{},
+			wantErr: false,
+		},
+		{
+			name:        "getAllOneFound",
+			mockCmdFunc: "TestListSnapshots_getAllOneFound",
+			args: args{
+				dataset:   "",
+				recursive: false,
+				debug:     false,
+			},
+			want: []Snapshot{
+				{
+					Name: "tank/data@backup",
+					Used: 134217728,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:        "getOneNoneFound",
+			mockCmdFunc: "TestListSnapshots_getOneNoneFound",
+			args: args{
+				dataset:   "tank",
+				recursive: false,
+				debug:     false,
+			},
+			want:    []Snapshot{},
+			wantErr: false,
+		},
+		{
+			name:        "getOneOneFound",
+			mockCmdFunc: "TestListSnapshots_getOneOneFound",
+			args: args{
+				dataset:   "tank",
+				recursive: false,
+				debug:     false,
+			},
+			want: []Snapshot{
+				{
+					Name: "tank/data@backup1",
+					Used: 131072,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:        "getAllRecursiveNoneFound",
+			mockCmdFunc: "TestListSnapshots_getAllRecursiveNoneFound",
+			args: args{
+				dataset:   "",
+				recursive: true,
+				debug:     false,
+			},
+			want:    []Snapshot{},
+			wantErr: false,
+		},
+		{
+			name:        "getAllRecursiveOneFound",
+			mockCmdFunc: "TestListSnapshots_getAllRecursiveOneFound",
+			args: args{
+				dataset:   "",
+				recursive: true,
+				debug:     false,
+			},
+			want: []Snapshot{
+				{
+					Name: "tank/data@backup",
+					Used: 134217728,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:        "getOneRecursiveNoneFound",
+			mockCmdFunc: "TestListSnapshots_getOneRecursiveNoneFound",
+			args: args{
+				dataset:   "tank",
+				recursive: true,
+				debug:     false,
+			},
+			want:    []Snapshot{},
+			wantErr: false,
+		},
+		{
+			name:        "getOneRecursiveOneFound",
+			mockCmdFunc: "TestListSnapshots_getOneRecursiveOneFound",
+			args: args{
+				dataset:   "tank",
+				recursive: true,
+				debug:     false,
+			},
+			want: []Snapshot{
+				{
+					Name: "tank/data@backup1",
+					Used: 131072,
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+
+			got, err := ListSnapshots(testCase.args.dataset, testCase.args.recursive, testCase.args.debug)
+
+			if (err != nil) != testCase.wantErr {
+				t.Errorf("ListSnapshots() error = %v, wantErr %v", err, testCase.wantErr)
+
+				return
+			}
+
+			diff := deep.Equal(got, testCase.want)
+			if diff != nil {
+				t.Errorf("compare failed: %#v", diff)
+			}
+		})
+	}
+}
+
+//nolint:paralleltest
 func TestDestroySnapshot_DryRun(t *testing.T) {
 	var ran bool
 
@@ -159,27 +304,6 @@ func TestDestroySnapshot_Real(t *testing.T) {
 
 	if !staleSnapshotSize {
 		t.Error("expected staleSnapshotSize = true after successful destroy")
-	}
-}
-
-//nolint:paralleltest
-func TestListSnapshots(t *testing.T) {
-	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
-		return exec.Command("echo", "pool/fs@a\t1024\n"+
-			"pool/fs@b\t0")
-	}
-
-	snaps, err := ListSnapshotsFn("", false, false)
-	if err != nil {
-		t.Fatalf("ListSnapshots failed: %v", err)
-	}
-
-	if len(snaps) != 2 {
-		t.Errorf("expected 2 snapshots, got %d", len(snaps))
-	}
-
-	if snaps[0].Used != 1024 {
-		t.Errorf("expected Used=1024 for first snapshot, got %d", snaps[0].Used)
 	}
 }
 
@@ -322,6 +446,258 @@ func TestSnapshot_IsZeroTrue(_ *testing.T) {
 	}
 
 	fmt.Printf("0\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListSnapshots_getAllNoneFound(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-H",
+		"-p",
+		"-t",
+		"snapshot",
+		"-o",
+		"name,used",
+		"-S",
+		"name",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListSnapshots_getAllOneFound(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-H",
+		"-p",
+		"-t",
+		"snapshot",
+		"-o",
+		"name,used",
+		"-S",
+		"name",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("tank/data@backup\t134217728\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListSnapshots_getOneNoneFound(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-d",
+		"1",
+		"-H",
+		"-p",
+		"-t",
+		"snapshot",
+		"-o",
+		"name,used",
+		"-S",
+		"name",
+		"tank",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListSnapshots_getOneOneFound(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-d",
+		"1",
+		"-H",
+		"-p",
+		"-t",
+		"snapshot",
+		"-o",
+		"name,used",
+		"-S",
+		"name",
+		"tank",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("tank/data@backup1\t131072\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListSnapshots_getAllRecursiveNoneFound(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-r",
+		"-H",
+		"-p",
+		"-t",
+		"snapshot",
+		"-o",
+		"name,used",
+		"-S",
+		"name",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListSnapshots_getAllRecursiveOneFound(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-r",
+		"-H",
+		"-p",
+		"-t",
+		"snapshot",
+		"-o",
+		"name,used",
+		"-S",
+		"name",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("tank/data@backup\t134217728\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListSnapshots_getOneRecursiveNoneFound(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-r",
+		"-H",
+		"-p",
+		"-t",
+		"snapshot",
+		"-o",
+		"name,used",
+		"-S",
+		"name",
+		"tank",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestListSnapshots_getOneRecursiveOneFound(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-r",
+		"-H",
+		"-p",
+		"-t",
+		"snapshot",
+		"-o",
+		"name,used",
+		"-S",
+		"name",
+		"tank",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("tank/data@backup1\t131072\n") //nolint:forbidigo
 
 	os.Exit(0)
 }
