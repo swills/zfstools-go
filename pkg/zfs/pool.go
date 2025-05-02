@@ -3,6 +3,8 @@ package zfs
 import (
 	"bufio"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -52,20 +54,20 @@ func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		parts := strings.SplitN(line, "\t", 3)
+		values := strings.Split(line, "\t")
 
-		if len(parts) < 3 {
+		if len(values) < 3 {
 			continue
 		}
 
-		name, property, value := parts[0], parts[1], parts[2]
+		poolName, propName, propValue := values[0], values[1], values[2]
 
-		_, ok := poolProps[name]
+		_, ok := poolProps[poolName]
 		if !ok {
-			poolProps[name] = map[string]string{}
+			poolProps[poolName] = map[string]string{}
 		}
 
-		poolProps[name][property] = value
+		poolProps[poolName][propName] = propValue
 	}
 
 	err = cmd.Wait()
@@ -73,12 +75,12 @@ func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 		return nil, fmt.Errorf("zpool wait: %w", err)
 	}
 
-	pools := make([]Pool, 0, len(poolProps))
+	pools := make([]Pool, 0, 1)
 
-	for name, props := range poolProps {
+	for _, poolName := range slices.Sorted(maps.Keys(poolProps)) {
 		pools = append(pools, Pool{
-			Name:       name,
-			Properties: props,
+			Name:       poolName,
+			Properties: poolProps[poolName],
 		})
 	}
 
