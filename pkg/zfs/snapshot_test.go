@@ -1,34 +1,74 @@
 package zfs
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
 	"testing"
+
+	"github.com/go-test/deep"
+
+	"zfstools-go/pkg/zfstoolstest"
 )
 
 var _ = exec.Command
 
 //nolint:paralleltest
-func TestGetUsed_Stale(t *testing.T) {
-	staleSnapshotSize = true
-	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
-		return exec.Command("echo", "4096")
+func TestSnapshot_GetUsed(t *testing.T) {
+	type fields struct {
+		Name string
+		Used int64
 	}
 
-	snap := Snapshot{Name: "pool/fs@snap", Used: 2048}
-	used := snap.GetUsed(true)
-
-	if used != 4096 {
-		t.Errorf("expected 4096, got %d", used)
+	type args struct {
+		debug bool
 	}
-}
 
-//nolint:paralleltest
-func TestGetUsed_NotStale(t *testing.T) {
-	staleSnapshotSize = false
-	snap := Snapshot{Name: "pool/fs@snap", Used: 1024}
+	tests := []struct {
+		name        string
+		mockCmdFunc string
+		fields      fields
+		want        int64
+		args        args
+		stale       bool
+	}{
+		{
+			name:        "stale",
+			mockCmdFunc: "TestSnapshot_GetUsedStale",
+			fields: fields{
+				Name: "pool/fs@snap",
+				Used: 2048,
+			},
+			stale: true,
+			want:  4096,
+		},
+		{
+			name:        "notStale",
+			mockCmdFunc: "TestSnapshot_GetUsedStale", // not used
+			fields: fields{
+				Name: "pool/fs@snap",
+				Used: 1024,
+			},
+			stale: false,
+			want:  1024,
+		},
+	}
 
-	if snap.GetUsed(false) != 1024 {
-		t.Error("expected GetUsed to return original Used value")
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			staleSnapshotSize = testCase.stale
+			runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+
+			s := &Snapshot{
+				Name: testCase.fields.Name,
+				Used: testCase.fields.Used,
+			}
+
+			got := s.GetUsed(testCase.args.debug)
+			if got != testCase.want {
+				t.Errorf("GetUsed() = %v, want %v", got, testCase.want)
+			}
+		})
 	}
 }
 
@@ -188,4 +228,33 @@ func Test_toIntPrefix(t *testing.T) {
 			}
 		})
 	}
+}
+
+// test helpers from here down
+
+//nolint:paralleltest
+func TestSnapshot_GetUsedStale(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"get",
+		"-Hp",
+		"-o",
+		"value",
+		"used",
+		"pool/fs@snap",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("4096\n") //nolint:forbidigo
+
+	os.Exit(0)
 }
