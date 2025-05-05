@@ -54,15 +54,17 @@ func TestDoNewSnapshots(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
 func TestGroupSnapshotsIntoDatasets(t *testing.T) {
 	type args struct {
 		snaps    []zfs.Snapshot
 		datasets []zfs.Dataset
 	}
+
 	tests := []struct {
+		want map[string][]zfs.Snapshot
 		name string
 		args args
-		want map[string][]zfs.Snapshot
 	}{
 		{
 			name: "simple",
