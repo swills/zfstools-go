@@ -55,20 +55,51 @@ func TestDoNewSnapshots(t *testing.T) {
 }
 
 func TestGroupSnapshotsIntoDatasets(t *testing.T) {
-	t.Parallel()
-
-	datasets := []zfs.Dataset{
-		{Name: "pool/home"},
-		{Name: "pool/data"},
+	type args struct {
+		snaps    []zfs.Snapshot
+		datasets []zfs.Dataset
 	}
-	snaps := []zfs.Snapshot{
-		{Name: "pool/home@zfs-auto-snap_hourly-2025-01-01-01h00"},
-		{Name: "pool/data@zfs-auto-snap_hourly-2025-01-01-01h00"},
+	tests := []struct {
+		name string
+		args args
+		want map[string][]zfs.Snapshot
+	}{
+		{
+			name: "simple",
+			args: args{
+				snaps: []zfs.Snapshot{
+					{Name: "pool/home@zfs-auto-snap_hourly-2025-01-01-01h00"},
+					{Name: "pool/data@zfs-auto-snap_hourly-2025-01-01-01h00"},
+				},
+				datasets: []zfs.Dataset{
+					{Name: "pool/home"},
+					{Name: "pool/data"},
+				},
+			},
+			want: map[string][]zfs.Snapshot{
+				"pool/home": {
+					{
+						Name: "pool/home@zfs-auto-snap_hourly-2025-01-01-01h00",
+					},
+				},
+				"pool/data": {
+					{
+						Name: "pool/data@zfs-auto-snap_hourly-2025-01-01-01h00",
+					},
+				},
+			},
+		},
 	}
-	grouped := GroupSnapshotsIntoDatasets(snaps, datasets)
 
-	if len(grouped["pool/home"]) != 1 || len(grouped["pool/data"]) != 1 {
-		t.Error("expected each dataset to have one snapshot")
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := GroupSnapshotsIntoDatasets(testCase.args.snaps, testCase.args.datasets)
+
+			diff := deep.Equal(got, testCase.want)
+			if diff != nil {
+				t.Errorf("compare failed: %#v", diff)
+			}
+		})
 	}
 }
 
