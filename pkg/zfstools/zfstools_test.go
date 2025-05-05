@@ -521,6 +521,615 @@ func TestFindEligibleDatasets(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest,maintidx
+func Test_findRecursiveDatasets(t *testing.T) {
+	type args struct {
+		datasets map[string][]zfs.Dataset
+	}
+
+	tests := []struct {
+		args args
+		want map[string][]zfs.Dataset
+		name string
+	}{
+		{
+			name: "considers all included as recursive",
+			args: args{
+				datasets: map[string][]zfs.Dataset{
+					"included": {
+						{
+							Name: "tank",
+						},
+						{
+							Name: "tank/a",
+						},
+						{
+							Name: "tank/a/1",
+						},
+						{
+							Name: "tank/b",
+						},
+					},
+				},
+			},
+			want: map[string][]zfs.Dataset{
+				"single": nil,
+				"recursive": {
+					{
+						Name:       "tank",
+						Properties: nil,
+						DB:         "",
+					},
+				},
+				"included": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/a/1",
+					},
+					{
+						Name: "tank/b",
+					},
+				},
+				"excluded": nil,
+			},
+		},
+		{
+			name: "considers all multiple parent datasets as recursive",
+			args: args{
+				datasets: map[string][]zfs.Dataset{
+					"included": {
+						{
+							Name: "tank",
+						},
+						{
+							Name: "tank/a",
+						},
+						{
+							Name: "tank/a/1",
+						},
+						{
+							Name: "tank/b",
+						},
+						{
+							Name: "rpool",
+						},
+						{
+							Name: "rpool/a",
+						},
+						{
+							Name: "rpool/b",
+						},
+						{
+							Name: "zpool",
+						},
+						{
+							Name: "zpool/a",
+						},
+						{
+							Name: "zpool/b",
+						},
+					},
+					"excluded": {},
+				},
+			},
+			want: map[string][]zfs.Dataset{
+				"single": nil,
+				"recursive": {
+					{
+						Name:       "tank",
+						Properties: nil,
+						DB:         "",
+					},
+					{
+						Name:       "rpool",
+						Properties: nil,
+						DB:         "",
+					},
+					{
+						Name:       "zpool",
+						Properties: nil,
+						DB:         "",
+					},
+				},
+				"included": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/a/1",
+					},
+					{
+						Name: "tank/b",
+					},
+					{
+						Name: "rpool",
+					},
+					{
+						Name: "rpool/a",
+					},
+					{
+						Name: "rpool/b",
+					},
+					{
+						Name: "zpool",
+					},
+					{
+						Name: "zpool/a",
+					},
+					{
+						Name: "zpool/b",
+					},
+				},
+				"excluded": {},
+			},
+		},
+		{
+			name: "considers all excluded as empty",
+			args: args{
+				datasets: map[string][]zfs.Dataset{
+					"included": {},
+					"excluded": {
+						{
+							Name: "tank",
+						},
+						{
+							Name: "tank/a",
+						},
+						{
+							Name: "tank/a/1",
+						},
+						{
+							Name: "tank/b",
+						},
+					},
+				},
+			},
+			want: map[string][]zfs.Dataset{
+				"single":    nil,
+				"recursive": nil,
+				"included":  {},
+				"excluded": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/a/1",
+					},
+					{
+						Name: "tank/b",
+					},
+				},
+			},
+		},
+		{
+			name: "considers first level excluded",
+			args: args{
+				datasets: map[string][]zfs.Dataset{
+					"included": {
+						{
+							Name: "tank",
+						},
+						{
+							Name: "tank/a",
+						},
+						{
+							Name: "tank/a/1",
+						},
+					},
+					"excluded": {
+						{
+							Name: "rpool",
+						},
+						{
+							Name: "rpool/a",
+						},
+					},
+				},
+			},
+			want: map[string][]zfs.Dataset{
+				"single": nil,
+				"recursive": {
+					{
+						Name: "tank",
+					},
+				},
+				"included": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/a/1",
+					},
+				},
+				"excluded": {
+					{
+						Name: "rpool",
+					},
+					{
+						Name: "rpool/a",
+					},
+				},
+			},
+		},
+		{
+			name: "considers second level excluded",
+			args: args{
+				datasets: map[string][]zfs.Dataset{
+					"included": {
+						{
+							Name: "tank",
+						},
+						{
+							Name: "tank/a",
+						},
+						{
+							Name: "tank/a/1",
+						},
+					},
+					"excluded": {
+						{
+							Name: "tank/b",
+						},
+					},
+				},
+			},
+			want: map[string][]zfs.Dataset{
+				"single": {
+					{
+						Name: "tank",
+					},
+				},
+				"recursive": {
+					{
+						Name: "tank/a",
+					},
+				},
+				"included": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/a/1",
+					},
+				},
+				"excluded": {
+					{
+						Name: "tank/b",
+					},
+				},
+			},
+		},
+		{
+			name: "considers third level excluded",
+			args: args{
+				datasets: map[string][]zfs.Dataset{
+					"included": {
+						{
+							Name: "tank",
+						},
+						{
+							Name: "tank/a",
+						},
+						{
+							Name: "tank/a/1",
+						},
+						{
+							Name: "tank/a/2",
+						},
+						{
+							Name: "tank/b",
+						},
+						{
+							Name: "tank/b/1",
+						},
+						{
+							Name: "tank/b/2",
+						},
+					},
+					"excluded": {
+						{
+							Name: "tank/c",
+						},
+					},
+				},
+			},
+			want: map[string][]zfs.Dataset{
+				"single": {
+					{
+						Name: "tank",
+					},
+				},
+				"recursive": {
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/b",
+					},
+				},
+				"included": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/a/1",
+					},
+					{
+						Name: "tank/a/2",
+					},
+					{
+						Name: "tank/b",
+					},
+					{
+						Name: "tank/b/1",
+					},
+					{
+						Name: "tank/b/2",
+					},
+				},
+				"excluded": {
+					{
+						Name: "tank/c",
+					},
+				},
+			},
+		},
+		{
+			name: "considers child with mysql db in parent recursive",
+			args: args{
+				datasets: map[string][]zfs.Dataset{
+					"included": {
+						{
+							Name: "tank",
+						},
+						{
+							Name: "tank/a",
+						},
+						{
+							Name: "tank/a/1",
+						},
+						{
+							Name: "tank/a/2",
+						},
+						{
+							Name: "tank/b",
+						},
+						{
+							Name: "tank/b/1",
+							DB:   "mysql",
+						},
+						{
+							Name: "tank/b/2",
+						},
+					},
+					"excluded": nil,
+				},
+			},
+			want: map[string][]zfs.Dataset{
+				"single": nil,
+				"recursive": {
+					{
+						Name: "tank",
+						DB:   "mysql",
+					},
+				},
+				"included": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/a/1",
+					},
+					{
+						Name: "tank/a/2",
+					},
+					{
+						Name: "tank/b",
+					},
+					{
+						Name: "tank/b/1",
+						DB:   "mysql",
+					},
+					{
+						Name: "tank/b/2",
+					},
+				},
+				"excluded": nil,
+			},
+		},
+		{
+			name: "considers child with mysql db in recursive with singles and exclusions",
+			args: args{
+				datasets: map[string][]zfs.Dataset{
+					"included": {
+						{
+							Name: "tank",
+						},
+						{
+							Name: "tank/a",
+						},
+						{
+							Name: "tank/a/1",
+						},
+						{
+							Name: "tank/a/2",
+							DB:   "mysql",
+						},
+						{
+							Name: "tank/b",
+						},
+						{
+							Name: "tank/b/1",
+						},
+					},
+					"excluded": {
+						{
+							Name: "tank/b/2",
+						},
+					},
+				},
+			},
+			want: map[string][]zfs.Dataset{
+				"single": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/b",
+					},
+				},
+				"recursive": {
+					{
+						Name: "tank/a",
+						DB:   "mysql",
+					},
+					{
+						Name: "tank/b/1",
+					},
+				},
+				"included": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/a/1",
+					},
+					{
+						Name: "tank/a/2",
+						DB:   "mysql",
+					},
+					{
+						Name: "tank/b",
+					},
+					{
+						Name: "tank/b/1",
+					},
+				},
+				"excluded": {
+					{
+						Name: "tank/b/2",
+					},
+				},
+			},
+		},
+		{
+			name: "considers child with mysql db in single with recursives and exclusions",
+			args: args{
+				datasets: map[string][]zfs.Dataset{
+					"included": {
+						{
+							Name: "tank",
+						},
+						{
+							Name: "tank/a",
+						},
+						{
+							Name: "tank/a/1",
+						},
+						{
+							Name: "tank/a/2",
+						},
+						{
+							Name: "tank/b",
+						},
+						{
+							Name: "tank/b/1",
+							DB:   "mysql",
+						},
+					},
+					"excluded": {
+						{
+							Name: "tank/b/2",
+						},
+					},
+				},
+			},
+			want: map[string][]zfs.Dataset{
+				"single": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/b",
+					},
+				},
+				"recursive": {
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/b/1",
+						DB:   "mysql",
+					},
+				},
+				"included": {
+					{
+						Name: "tank",
+					},
+					{
+						Name: "tank/a",
+					},
+					{
+						Name: "tank/a/1",
+					},
+					{
+						Name: "tank/a/2",
+					},
+					{
+						Name: "tank/b",
+					},
+					{
+						Name: "tank/b/1",
+						DB:   "mysql",
+					},
+				},
+				"excluded": {
+					{
+						Name: "tank/b/2",
+					},
+				},
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := findRecursiveDatasets(testCase.args.datasets)
+
+			diff := deep.Equal(got, testCase.want)
+			if diff != nil {
+				t.Errorf("compare failed: %#v", diff)
+			}
+		})
+	}
+}
+
 // test helpers from here down
 
 //nolint:paralleltest
