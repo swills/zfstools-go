@@ -2,7 +2,7 @@ package zfs
 
 import "os/exec"
 
-var runZfsFn = exec.Command
+var RunZfsFn = exec.Command
 
 var runZpoolFn = exec.Command
 

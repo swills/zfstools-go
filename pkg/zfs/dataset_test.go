@@ -150,7 +150,7 @@ func TestListDatasets(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
 
 			got := ListDatasets(testCase.args.pool, testCase.args.properties, testCase.args.debug)
 

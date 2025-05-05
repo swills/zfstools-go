@@ -31,7 +31,7 @@ func (s *Snapshot) GetUsed(debug bool) int64 {
 			fmt.Println("zfs get -Hp -o value used", s.Name) //nolint:forbidigo
 		}
 
-		cmd := runZfsFn("zfs", "get", "-Hp", "-o", "value", "used", s.Name)
+		cmd := RunZfsFn("zfs", "get", "-Hp", "-o", "value", "used", s.Name)
 
 		out, err := cmd.Output()
 		if err != nil {
@@ -74,7 +74,7 @@ func ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, erro
 		fmt.Println("zfs", strings.Join(args, " ")) //nolint:forbidigo
 	}
 
-	cmd := runZfsFn("zfs", args...)
+	cmd := RunZfsFn("zfs", args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -156,7 +156,7 @@ UNLOCK TABLES;`, cmdStr)
 	var err error
 
 	if !dryRun {
-		err = runZfsFn("sh", "-c", cmdStr).Run()
+		err = RunZfsFn("sh", "-c", cmdStr).Run()
 		if err != nil {
 			return fmt.Errorf("error creating snapshot: %w", err)
 		}
@@ -299,7 +299,7 @@ func getArgMax() int {
 
 	var val int
 
-	out, err = runZfsFn("getconf", "ARG_MAX").Output()
+	out, err = RunZfsFn("getconf", "ARG_MAX").Output()
 	if err != nil {
 		return 4096 // conservative fallback
 	}
@@ -326,7 +326,7 @@ func DestroySnapshot(name string, dryRun, debug bool) error {
 	var err error
 
 	if !dryRun {
-		err = runZfsFn("zfs", args...).Run()
+		err = RunZfsFn("zfs", args...).Run()
 		if err != nil {
 			return fmt.Errorf("error creating snapshot: %w", err)
 		}

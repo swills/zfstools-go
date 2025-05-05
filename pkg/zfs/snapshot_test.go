@@ -57,7 +57,7 @@ func TestSnapshot_GetUsed(t *testing.T) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			staleSnapshotSize = testCase.stale
-			runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
 
 			s := &Snapshot{
 				Name: testCase.fields.Name,
@@ -115,7 +115,7 @@ func TestSnapshot_IsZero(t *testing.T) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			staleSnapshotSize = false
-			runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
 
 			s := &Snapshot{
 				Name: testCase.fields.Name,
@@ -268,7 +268,7 @@ func TestListSnapshots(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
 
 			got, err := ListSnapshots(testCase.args.dataset, testCase.args.recursive, testCase.args.debug)
 
@@ -450,7 +450,7 @@ func TestCreateSnapshot(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
 
 			err := CreateSnapshot(testCase.args.targets, testCase.args.recursive, testCase.args.dbName,
 				testCase.args.dryRun, testCase.args.verbose, testCase.args.debug)
@@ -623,7 +623,7 @@ func TestCreateManySnapshots(t *testing.T) {
 	}
 
 	for _, testCase := range tests {
-		runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+		RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
 		// ensure we control for bookmark feature support detection
 		runZpoolFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
 
@@ -676,7 +676,7 @@ func Test_getArgMax(t *testing.T) {
 	}
 
 	for _, testCase := range tests {
-		runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+		RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
 
 		t.Run(testCase.name, func(t *testing.T) {
 			got := getArgMax()
@@ -736,7 +736,7 @@ func TestDestroySnapshot(t *testing.T) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			staleSnapshotSize = false
-			runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
 
 			err := DestroySnapshot(testCase.args.name, testCase.args.dryRun, testCase.args.debug)
 			if (err != nil) != testCase.wantErr {
