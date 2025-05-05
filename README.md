@@ -46,7 +46,7 @@ sudo install zfs-snapshot-mysql /usr/local/sbin/
 
 ### `zfs-auto-snapshot`
 
-```sh
+```
 Usage: /usr/local/sbin/zfs-auto-snapshot [-dknpuv] <INTERVAL> <KEEP>
   -d              Show debug output.
   -k              Keep zero-sized snapshots.
@@ -61,7 +61,7 @@ Usage: /usr/local/sbin/zfs-auto-snapshot [-dknpuv] <INTERVAL> <KEEP>
 
 ### `zfs-cleanup-snapshots`
 
-```sh
+```
 Usage: /usr/local/sbin/zfs-cleanup-snapshots [-dnv]
     -d              Show debug output.
     -n              Do a dry-run. Nothing is committed. Only show what would be done.
@@ -72,7 +72,7 @@ Usage: /usr/local/sbin/zfs-cleanup-snapshots [-dnv]
 
 ### `zfs-snapshot-mysql`
 
-```sh
+```
 Usage: /usr/local/sbin/zfs-snapshot-mysql [-dnv] DATASET
     -d              Show debug output.
     -n              Do a dry-run. Nothing is committed. Only show what would be done.
