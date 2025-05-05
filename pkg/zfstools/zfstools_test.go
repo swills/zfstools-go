@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/go-test/deep"
 
@@ -13,6 +14,7 @@ import (
 )
 
 var createdSnapshots []string
+
 var destroyedSnapshots []string
 
 func init() {
@@ -1233,6 +1235,128 @@ func Test_findRecursiveDatasets(t *testing.T) {
 			diff := deep.Equal(got, testCase.want)
 			if diff != nil {
 				t.Errorf("compare failed: %#v", diff)
+			}
+		})
+	}
+}
+
+func Test_snapshotPrefix(t *testing.T) {
+	type args struct {
+		cfg config.Config
+	}
+
+	tests := []struct {
+		name string
+		want string
+		args args
+	}{
+		{
+			name: "prefixNotSet",
+			args: args{
+				config.Config{
+					SnapshotPrefix: "",
+				},
+			},
+			want: "zfs-auto-snap",
+		},
+		{
+			name: "prefixSet",
+			args: args{
+				config.Config{
+					SnapshotPrefix: "custom-snapshot-prefix",
+				},
+			},
+			want: "custom-snapshot-prefix",
+		},
+	}
+
+	t.Parallel()
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := snapshotPrefix(testCase.args.cfg)
+			if got != testCase.want {
+				t.Errorf("snapshotPrefix() = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
+func Test_snapshotName(t *testing.T) {
+	type args struct {
+		cfg config.Config
+	}
+
+	tests := []struct {
+		name string
+		want string
+		args args
+	}{
+		{
+			name: "doNotUseUTC",
+			args: args{
+				cfg: config.Config{
+					Timestamp: time.Date(2025, 05, 05, 17, 45, 0, 0,
+						time.FixedZone("US/Eastern", 0)),
+					Interval:       "frequent",
+					SnapshotPrefix: "",
+					UseUTC:         false,
+				},
+			},
+			want: "zfs-auto-snap_frequent-2025-05-05-17h45",
+		},
+		{
+			name: "useUTC",
+			args: args{
+				cfg: config.Config{
+					Timestamp: time.Date(2025, 05, 05, 17, 45, 0, 0,
+						time.FixedZone("US/Eastern", 0)),
+					Interval:       "frequent",
+					SnapshotPrefix: "",
+					UseUTC:         true,
+				},
+			},
+			want: "zfs-auto-snap_frequent-2025-05-05-17h45U",
+		},
+		{
+			name: "doNotUseUTCTestTimeIsUTC",
+			args: args{
+				cfg: config.Config{
+					Timestamp: time.Date(2025, 05, 05, 17, 45, 0, 0,
+						time.UTC),
+					Interval:       "frequent",
+					SnapshotPrefix: "",
+					UseUTC:         false,
+				},
+			},
+			want: "zfs-auto-snap_frequent-2025-05-05-17h45",
+		},
+		{
+			name: "useUTCTestTimeIsUTC",
+			args: args{
+				cfg: config.Config{
+					Timestamp: time.Date(2025, 05, 05, 17, 45, 0, 0,
+						time.UTC),
+					Interval:       "frequent",
+					SnapshotPrefix: "",
+					UseUTC:         true,
+				},
+			},
+			want: "zfs-auto-snap_frequent-2025-05-05-17h45U",
+		},
+	}
+
+	t.Parallel()
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := snapshotName(testCase.args.cfg)
+			if got != testCase.want {
+				t.Errorf("snapshotName() = %v, want %v", got, testCase.want)
 			}
 		})
 	}
