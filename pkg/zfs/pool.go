@@ -13,6 +13,7 @@ type Pool struct {
 	Name       string
 }
 
+// ListPools returns zfs pool(s), all pools or just the one specified by name arg
 func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 	if len(cmdProps) == 0 {
 		cmdProps = []string{"all"}

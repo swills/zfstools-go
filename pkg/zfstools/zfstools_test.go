@@ -72,7 +72,7 @@ func TestGroupSnapshotsIntoDatasets(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest
+//nolint:paralleltest,maintidx
 func TestFindEligibleDatasets(t *testing.T) {
 	type args struct {
 		pool string
@@ -289,6 +289,222 @@ func TestFindEligibleDatasets(t *testing.T) {
 				"excluded": nil,
 			},
 		},
+		{
+			name:        "manyDatasets",
+			mockCmdFunc: "TestFindEligibleDatasets_manyDatasets",
+			args: args{
+				cfg:  config.Config{Interval: "frequent"},
+				pool: "tank",
+			},
+			want: map[string][]zfs.Dataset{
+				"single": {
+					{
+						Name: "tank/moredata",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "true",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+				},
+				"recursive": {
+					{
+						Name: "tank/ROOT/default",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "true",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/ports/default",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "true",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/usr/home",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "true",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/moredata/3",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "true",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+				},
+				"included": {
+					{
+						Name: "tank/ROOT/default",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "true",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/ports/default",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "true",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/usr/home",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "true",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/moredata",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "true",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/moredata/3",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "true",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+				},
+				"excluded": {
+					{
+						Name: "tank/poudriere",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/ccache",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/data",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/data/cache",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/data/logs",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/data/packages",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/data/wrkdirs",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/distfiles",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/jails",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/jails/head-amd64",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/poudriere/ports",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+					{
+						Name: "tank/moredata/2",
+						Properties: map[string]string{
+							"type":                  "filesystem",
+							"com.sun:auto-snapshot": "false",
+							"mounted":               "yes",
+						},
+						DB: "",
+					},
+				},
+			},
+		},
 	}
 
 	for _, testCase := range tests {
@@ -424,6 +640,67 @@ func TestFindEligibleDatasets_onlyFreq(_ *testing.T) {
 	fmt.Printf("tank/fs2\tfilesystem\ttrue\ttrue\tyes\n") //nolint:forbidigo,dupword
 	fmt.Printf("tank/fs3\tfilesystem\ttrue\t-\tyes\n")    //nolint:forbidigo
 	fmt.Printf("tank/fs4\tfilesystem\t-\t-\tyes\n")       //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestFindEligibleDatasets_manyDatasets(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"list",
+		"-H",
+		"-t",
+		"filesystem,volume",
+		"-o",
+		"name,type,com.sun:auto-snapshot:frequent,com.sun:auto-snapshot,mounted",
+		"-s",
+		"name",
+		"-r",
+		"tank",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	//nolint:forbidigo
+	fmt.Printf(`tank	filesystem	-	-	yes
+tank/ROOT	filesystem	-	-	no
+tank/ROOT/default	filesystem	-	true	yes
+tank/poudriere	filesystem	-	false	yes
+tank/poudriere/ccache	filesystem	-	false	yes
+tank/poudriere/data	filesystem	-	false	yes
+tank/poudriere/data/cache	filesystem	-	false	yes
+tank/poudriere/data/logs	filesystem	-	false	yes
+tank/poudriere/data/packages	filesystem	-	false	yes
+tank/poudriere/data/wrkdirs	filesystem	-	false	yes
+tank/poudriere/distfiles	filesystem	-	false	yes
+tank/poudriere/jails	filesystem	-	false	yes
+tank/poudriere/jails/head-amd64	filesystem	-	false	yes
+tank/poudriere/ports	filesystem	-	false	yes
+tank/poudriere/ports/default	filesystem	-	true	yes
+tank/tmp	filesystem	-	-	yes
+tank/usr	filesystem	-	-	no
+tank/usr/home	filesystem	-	true	yes
+tank/usr/obj	filesystem	-	-	yes
+tank/usr/src	filesystem	-	-	yes
+tank/var	filesystem	-	-	no
+tank/var/audit	filesystem	-	-	yes
+tank/var/crash	filesystem	-	-	yes
+tank/var/log	filesystem	-	-	yes
+tank/var/mail	filesystem	-	-	yes
+tank/var/tmp	filesystem	-	-	yes
+tank/moredata	filesystem	-	true	yes
+tank/moredata/2	filesystem	-	false	yes
+tank/moredata/3	filesystem	-	true	yes
+`)
 
 	os.Exit(0)
 }

@@ -40,6 +40,7 @@ func snapshotName(cfg config.Config) string {
 	return snapshotPrefixInterval(cfg) + timestamp.Format(snapshotFormat())
 }
 
+// filterDatasets does the filtering work for FindEligibleDatasets
 func filterDatasets(datasets []zfs.Dataset, included, excluded *[]zfs.Dataset, prop string) {
 	all := append([]zfs.Dataset{}, *included...)
 	all = append(all, *excluded...)
@@ -70,6 +71,8 @@ func filterDatasets(datasets []zfs.Dataset, included, excluded *[]zfs.Dataset, p
 	}
 }
 
+// findRecursiveDatasets helps FindEligibleDatasets decide which datasets can be snapshot recursively
+//
 //nolint:gocognit,cyclop
 func findRecursiveDatasets(datasets map[string][]zfs.Dataset) map[string][]zfs.Dataset {
 	all := append([]zfs.Dataset{}, datasets["included"]...)
@@ -154,6 +157,11 @@ func findRecursiveDatasets(datasets map[string][]zfs.Dataset) map[string][]zfs.D
 	}
 }
 
+// FindEligibleDatasets returns datasets eligible for snapshotting, groups into 4 groups:
+// - single: datasets which cannot be snapshot recursively and must be done individually
+// - recursive: datasets which can be snapshot recursively, since all snapshots below them are eligible as well
+// - included: datasets which were included in one of those two lists
+// - excluded: datasets which were excluded from both of those lists
 func FindEligibleDatasets(cfg config.Config, pool string) map[string][]zfs.Dataset {
 	props := []string{
 		snapshotProperty() + ":" + cfg.Interval,
@@ -176,6 +184,7 @@ func FindEligibleDatasets(cfg config.Config, pool string) map[string][]zfs.Datas
 	})
 }
 
+// DoNewSnapshots creates the single and recursive snapshots
 func DoNewSnapshots(cfg config.Config, datasets map[string][]zfs.Dataset) {
 	name := snapshotName(cfg)
 	_ = createManySnapshotsFn(name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
