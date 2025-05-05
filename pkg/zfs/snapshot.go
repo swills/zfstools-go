@@ -313,7 +313,7 @@ func getArgMax() int {
 }
 
 // DestroySnapshot deletes a snapshot (and marks usage as stale)
-func DestroySnapshot(name string, dryRun, debug bool) {
+func DestroySnapshot(name string, dryRun, debug bool) error {
 	staleSnapshotSize = true
 	args := []string{"destroy", "-d"}
 
@@ -323,7 +323,14 @@ func DestroySnapshot(name string, dryRun, debug bool) {
 		fmt.Println("zfs", strings.Join(args, " ")) //nolint:forbidigo
 	}
 
+	var err error
+
 	if !dryRun {
-		_ = runZfsFn("zfs", args...).Run()
+		err = runZfsFn("zfs", args...).Run()
+		if err != nil {
+			return fmt.Errorf("error creating snapshot: %w", err)
+		}
 	}
+
+	return nil
 }

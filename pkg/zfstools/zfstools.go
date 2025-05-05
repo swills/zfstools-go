@@ -219,7 +219,7 @@ func destroyZeroSizedSnapshots(snaps []zfs.Snapshot, cfg config.Config) []zfs.Sn
 			}
 
 			if !cfg.DryRun {
-				destroySnapshotFn(snap.Name, cfg.DryRun, cfg.Debug)
+				_ = destroySnapshotFn(snap.Name, cfg.DryRun, cfg.Debug)
 			}
 		} else {
 			keep = append(keep, snap)
@@ -305,7 +305,8 @@ func CleanupExpiredSnapshots(cfg config.Config, pool string, datasets map[string
 			waitGroup.Add(1)
 
 			go func() {
-				destroySnapshotFn(s.Name, cfg.DryRun, cfg.Debug)
+				_ = destroySnapshotFn(s.Name, cfg.DryRun, cfg.Debug)
+
 				waitGroup.Done()
 			}()
 

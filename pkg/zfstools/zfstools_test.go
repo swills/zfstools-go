@@ -20,8 +20,10 @@ func init() {
 
 		return nil
 	}
-	destroySnapshotFn = func(name string, _, _ bool) {
+	destroySnapshotFn = func(name string, _, _ bool) error {
 		destroyedSnapshots = append(destroyedSnapshots, name)
+
+		return nil
 	}
 }
 

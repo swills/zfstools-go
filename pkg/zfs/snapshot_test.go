@@ -652,38 +652,6 @@ func TestCreateManySnapshots(t *testing.T) {
 }
 
 //nolint:paralleltest
-func TestDestroySnapshot_DryRun(t *testing.T) {
-	var ran bool
-
-	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
-		ran = true
-
-		return exec.Command("false")
-	}
-
-	staleSnapshotSize = false
-	DestroySnapshot("pool/fs@snap", true, false)
-
-	if ran {
-		t.Error("expected no command to run in dry-run mode")
-	}
-}
-
-//nolint:paralleltest
-func TestDestroySnapshot_Real(t *testing.T) {
-	runZfsFn = func(_ string, _ ...string) *exec.Cmd {
-		return exec.Command("echo")
-	}
-
-	staleSnapshotSize = false
-	DestroySnapshot("pool/fs@snap", false, false)
-
-	if !staleSnapshotSize {
-		t.Error("expected staleSnapshotSize = true after successful destroy")
-	}
-}
-
-//nolint:paralleltest
 func Test_getArgMax(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -714,6 +682,69 @@ func Test_getArgMax(t *testing.T) {
 			got := getArgMax()
 			if got != testCase.want {
 				t.Errorf("getArgMax() = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
+//nolint:paralleltest
+func TestDestroySnapshot(t *testing.T) {
+	type args struct {
+		name   string
+		dryRun bool
+		debug  bool
+	}
+
+	tests := []struct {
+		name        string
+		mockCmdFunc string
+		args        args
+		wantErr     bool
+	}{
+		{
+			name:        "working",
+			mockCmdFunc: "TestDestroySnapshot_working",
+			args: args{
+				name:   "pool1/fs1@snapshot1",
+				dryRun: false,
+				debug:  false,
+			},
+			wantErr: false,
+		},
+		{
+			name:        "error",
+			mockCmdFunc: "TestDestroySnapshot_error",
+			args: args{
+				name:   "pool1/fs1@snapshot1",
+				dryRun: false,
+				debug:  false,
+			},
+			wantErr: true,
+		},
+		{
+			name:        "dryRun",
+			mockCmdFunc: "TestDestroySnapshot_dryRun", // not called
+			args: args{
+				name:   "pool1/fs1@snapshot1",
+				dryRun: true,
+				debug:  false,
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			staleSnapshotSize = false
+			runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+
+			err := DestroySnapshot(testCase.args.name, testCase.args.dryRun, testCase.args.debug)
+			if (err != nil) != testCase.wantErr {
+				t.Errorf("DestroySnapshot() error = %v, wantErr %v", err, testCase.wantErr)
+			}
+
+			if staleSnapshotSize != true {
+				t.Errorf("staleSnapshotSize not updated")
 			}
 		})
 	}
@@ -1386,4 +1417,57 @@ func Test_getArgMax_bogus(_ *testing.T) {
 	fmt.Printf("bogus\n") //nolint:forbidigo
 
 	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestDestroySnapshot_working(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"destroy",
+		"-d",
+		"pool1/fs1@snapshot1",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func TestDestroySnapshot_error(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"zfs",
+		"destroy",
+		"-d",
+		"pool1/fs1@snapshot1",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(0)
+	}
+
+	os.Exit(1)
+}
+
+//nolint:paralleltest
+func TestDestroySnapshot_dryRun(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	os.Exit(1)
 }
