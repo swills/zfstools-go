@@ -683,6 +683,42 @@ func TestDestroySnapshot_Real(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
+func Test_getArgMax(t *testing.T) {
+	tests := []struct {
+		name        string
+		mockCmdFunc string
+		want        int
+	}{
+		{
+			name:        "working",
+			mockCmdFunc: "Test_getArgMax_working",
+			want:        123456,
+		},
+		{
+			name:        "error",
+			mockCmdFunc: "Test_getArgMax_error",
+			want:        4096,
+		},
+		{
+			name:        "working",
+			mockCmdFunc: "Test_getArgMax_bogus",
+			want:        4096,
+		},
+	}
+
+	for _, testCase := range tests {
+		runZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+
+		t.Run(testCase.name, func(t *testing.T) {
+			got := getArgMax()
+			if got != testCase.want {
+				t.Errorf("getArgMax() = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
 // test helpers from here down
 
 //nolint:paralleltest
@@ -1286,4 +1322,68 @@ func TestCreateManySnapshots_oneSnapshotOfManyErroredWithoutBookmarks(_ *testing
 	// second command will be `sh -c zfs snapshot pool/fs2@auto-2025-01-01`, which we let fail
 
 	os.Exit(1)
+}
+
+//nolint:paralleltest
+func Test_getArgMax_working(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"getconf",
+		"ARG_MAX",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("123456\n") //nolint:forbidigo
+
+	os.Exit(0)
+}
+
+//nolint:paralleltest
+func Test_getArgMax_error(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"getconf",
+		"ARG_MAX",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(0)
+	}
+
+	os.Exit(1)
+}
+
+//nolint:paralleltest
+func Test_getArgMax_bogus(_ *testing.T) {
+	if !zfstoolstest.IsTestEnv() {
+		return
+	}
+
+	cmdWithArgs := os.Args[3:]
+
+	expectedCmdWithArgs := []string{
+		"getconf",
+		"ARG_MAX",
+	}
+
+	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("bogus\n") //nolint:forbidigo
+
+	os.Exit(0)
 }
