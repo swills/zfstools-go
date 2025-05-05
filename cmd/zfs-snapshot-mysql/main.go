@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"time"
+	_ "time/tzdata"
 
 	flag "github.com/spf13/pflag"
 )

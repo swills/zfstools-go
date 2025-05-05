@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"zfstools-go/pkg/config"
 	"zfstools-go/pkg/zfs"
