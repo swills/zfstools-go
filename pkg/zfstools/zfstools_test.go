@@ -91,6 +91,81 @@ func TestGroupSnapshotsIntoDatasets(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Groups snapshots into their datasets",
+			args: args{
+				snaps: []zfs.Snapshot{
+					{Name: "tank@1"},
+					{Name: "tank@2"},
+					{Name: "tank/a@1"},
+					{Name: "tank/a@2"},
+					{Name: "tank/a/1@1"},
+					{Name: "tank/a/2@1"},
+					{Name: "tank/b@1"},
+					{Name: "tank/c@1"},
+					{Name: "tank/d@1"},
+					{Name: "tank/d/1@2"},
+				},
+				datasets: []zfs.Dataset{
+					{Name: "tank"},
+					{Name: "tank/a"},
+					{Name: "tank/a/1"},
+					{Name: "tank/a/2"},
+					{Name: "tank/b"},
+					{Name: "tank/c"},
+					{Name: "tank/d"},
+					{Name: "tank/d/1"},
+				},
+			},
+			want: map[string][]zfs.Snapshot{
+				"tank": {
+					{
+						Name: "tank@1",
+					},
+					{
+						Name: "tank@2",
+					},
+				},
+				"tank/a": {
+					{
+						Name: "tank/a@1",
+					},
+					{
+						Name: "tank/a@2",
+					},
+				},
+				"tank/a/1": {
+					{
+						Name: "tank/a/1@1",
+					},
+				},
+				"tank/a/2": {
+					{
+						Name: "tank/a/2@1",
+					},
+				},
+				"tank/b": {
+					{
+						Name: "tank/b@1",
+					},
+				},
+				"tank/c": {
+					{
+						Name: "tank/c@1",
+					},
+				},
+				"tank/d": {
+					{
+						Name: "tank/d@1",
+					},
+				},
+				"tank/d/1": {
+					{
+						Name: "tank/d/1@2",
+					},
+				},
+			},
+		},
 	}
 
 	for _, testCase := range tests {
