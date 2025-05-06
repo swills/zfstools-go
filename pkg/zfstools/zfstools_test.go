@@ -1362,6 +1362,170 @@ func Test_snapshotName(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest
+func Test_destroyZeroSizedSnapshots(t *testing.T) {
+	type args struct {
+		snaps []zfs.Snapshot
+		cfg   config.Config
+	}
+
+	tests := []struct {
+		mockDestroySnapshotFunc func(name string, dryRun bool, debug bool) error
+		name                    string
+		want                    []zfs.Snapshot
+		args                    args
+	}{
+		{
+			name: "zeroSnapshots",
+			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
+				return nil
+			},
+			args: args{
+				snaps: nil,
+				cfg:   config.Config{},
+			},
+		},
+		{
+			name: "oneSnapshotNotZero",
+			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
+				return nil
+			},
+			args: args{
+				snaps: []zfs.Snapshot{
+					{
+						Name: "tank/a@1",
+						Used: 123456,
+					},
+				},
+				cfg: config.Config{},
+			},
+			want: []zfs.Snapshot{
+				{
+					Name: "tank/a@1",
+					Used: 123456,
+				},
+			},
+		},
+		{
+			name: "oneSnapshotZero",
+			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
+				return nil
+			},
+			args: args{
+				snaps: []zfs.Snapshot{
+					{
+						Name: "tank/a@1",
+						Used: 0,
+					},
+				},
+				cfg: config.Config{},
+			},
+			want: []zfs.Snapshot{
+				{
+					Name: "tank/a@1",
+					Used: 0,
+				},
+			},
+		},
+		{
+			name: "twoSnapshotsNeitherZero",
+			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
+				return nil
+			},
+			args: args{
+				snaps: []zfs.Snapshot{
+					{
+						Name: "tank/a@2",
+						Used: 123456,
+					},
+					{
+						Name: "tank/a@1",
+						Used: 12345,
+					},
+				},
+				cfg: config.Config{},
+			},
+			want: []zfs.Snapshot{
+				{
+					Name: "tank/a@2",
+					Used: 123456,
+				},
+				{
+					Name: "tank/a@1",
+					Used: 12345,
+				},
+			},
+		},
+		{
+			name: "twoSnapshotsFirstZero",
+			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
+				return nil
+			},
+			args: args{
+				snaps: []zfs.Snapshot{
+					{
+						Name: "tank/a@2",
+						Used: 123456,
+					},
+					{
+						Name: "tank/a@1",
+						Used: 0,
+					},
+				},
+				cfg: config.Config{},
+			},
+			want: []zfs.Snapshot{
+				{
+					Name: "tank/a@2",
+					Used: 123456,
+				},
+			},
+		},
+		{
+			name: "twoSnapshotsSecondZero",
+			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
+				return nil
+			},
+			args: args{
+				snaps: []zfs.Snapshot{
+					{
+						Name: "tank/a@2",
+						Used: 0,
+					},
+					{
+						Name: "tank/a@1",
+						Used: 123456,
+					},
+				},
+				cfg: config.Config{},
+			},
+			want: []zfs.Snapshot{
+				{
+					Name: "tank/a@2",
+					Used: 0,
+				},
+				{
+					Name: "tank/a@1",
+					Used: 123456,
+				},
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			destroySnapshotFn = testCase.mockDestroySnapshotFunc
+
+			got := destroyZeroSizedSnapshots(testCase.args.snaps, testCase.args.cfg)
+
+			diff := deep.Equal(got, testCase.want)
+			if diff != nil {
+				t.Errorf("compare failed: %#v", diff)
+			}
+		})
+	}
+}
+
 // test helpers from here down
 
 //nolint:paralleltest
