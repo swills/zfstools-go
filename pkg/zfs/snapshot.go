@@ -297,19 +297,19 @@ func getArgMax() int {
 
 	var out []byte
 
-	var val int
+	var val int64
 
 	out, err = RunZfsFn("getconf", "ARG_MAX").Output()
 	if err != nil {
 		return 4096 // conservative fallback
 	}
 
-	val, err = strconv.Atoi(strings.TrimSpace(string(out)))
+	val, err = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
 	if err != nil {
 		return 4096
 	}
 
-	return val
+	return int(val)
 }
 
 // DestroySnapshot deletes a snapshot (and marks usage as stale)

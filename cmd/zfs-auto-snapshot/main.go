@@ -66,9 +66,13 @@ func main() {
 
 	cfg.Interval = args[0]
 
-	cfg.Keep, err = strconv.Atoi(args[1])
+	var keepInt int64
+
+	keepInt, err = strconv.ParseInt(args[1], 10, 0)
 	if err != nil {
 		cfg.Keep = 0
+	} else {
+		cfg.Keep = int(keepInt)
 	}
 
 	datasets := zfstools.FindEligibleDatasets(cfg, pool)
