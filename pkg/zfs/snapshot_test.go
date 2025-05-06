@@ -3,15 +3,12 @@ package zfs
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"testing"
 
 	"github.com/go-test/deep"
 
 	"zfstools-go/pkg/zfstoolstest"
 )
-
-var _ = exec.Command
 
 //nolint:paralleltest
 func TestSnapshot_GetUsed(t *testing.T) {
