@@ -1,6 +1,6 @@
 module zfstools-go
 
-go 1.23.8
+go 1.23.9
 
 require (
 	github.com/go-test/deep v1.1.1

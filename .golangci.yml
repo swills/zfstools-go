@@ -1,167 +1,179 @@
+version: "2"
 run:
-  go: '1.23'
-
+  go: "1.23"
 linters:
   enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gocritic
-    - gocyclo
-    - asciicheck
-    - decorder
-    - dogsled
-    - errname
-    - forbidigo
-    - unparam
-    - sloglint
-    - tagalign
-    - gofmt
-    - gci
-    - bodyclose
-    - noctx
-    - perfsprint
-    - rowserrcheck
-    - sqlclosecheck
-    - nestif
-    - maintidx
-    - gocognit
-    - cyclop
-    - errorlint
-    - testifylint
-    - zerologlint
-    - dupword
-    - misspell
-    - usetesting
     - asasalint
+    - asciicheck
     - bidichk
+    - bodyclose
     - containedctx
     - contextcheck
-    - durationcheck
-    - errchkjson
-    - exhaustive
     - copyloopvar
+    - cyclop
+    - decorder
+    - dogsled
+    - dupword
+    - durationcheck
+    - err113
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - forbidigo
+    - forcetypeassert
+    - funlen
+    - ginkgolinter
     - gocheckcompilerdirectives
     - gochecksumtype
-    - ginkgolinter
-    - gosmopolitan
-    - loggercheck
-    - makezero
-    - musttag
-    - nilerr
-    - reassign
-    - spancheck
-    - forcetypeassert
+    - gocognit
+    - gocritic
+    - gocyclo
     - goheader
     - goprintffuncname
+    - gosec
+    - gosmopolitan
     - grouper
     - importas
     - inamedparam
     - interfacebloat
     - ireturn
+    - lll
+    - loggercheck
+    - maintidx
+    - makezero
     - mirror
+    - misspell
+    - musttag
     - nakedret
+    - nestif
+    - nilerr
     - nilnil
+    - nlreturn
+    - noctx
     - nolintlint
+    - nonamedreturns
     - nosprintfhostport
+    - paralleltest
+    - perfsprint
+    - prealloc
     - predeclared
     - promlinter
+    - protogetter
+    - reassign
+    - revive
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
+    - staticcheck
+    - tagalign
+    - testableexamples
+    - testifylint
     - thelper
+    - tparallel
     - unconvert
+    - unparam
     - usestdlibvars
+    - usetesting
+    - varnamelen
     - wastedassign
     - whitespace
-    - testableexamples
-    - nlreturn
-    - stylecheck
     - wrapcheck
-    - err113
-    - lll
-    - revive
-    - goimports
-    - nonamedreturns
-    - varnamelen
-    - protogetter
-    - tparallel
-    - paralleltest
     - wsl
-    - funlen
-    - gosec
-    - prealloc
-
+    - zerologlint
+  settings:
+    cyclop:
+      max-complexity: 16
+    funlen:
+      lines: 100
+      statements: 55
+    govet:
+      enable:
+        - appends
+        - asmdecl
+        - assign
+        - atomic
+        - atomicalign
+        - bools
+        - buildtag
+        - cgocall
+        - composites
+        - copylocks
+        - deepequalerrors
+        - defers
+        - directive
+        - errorsas
+        - fieldalignment
+        - findcall
+        - framepointer
+        - httpresponse
+        - ifaceassert
+        - loopclosure
+        - lostcancel
+        - nilfunc
+        - nilness
+        - printf
+        - reflectvaluecompare
+        - shadow
+        - shift
+        - sigchanyzer
+        - slog
+        - sortslice
+        - stdmethods
+        - stringintconv
+        - structtag
+        - testinggoroutine
+        - tests
+        - timeformat
+        - unmarshal
+        - unreachable
+        - unsafeptr
+        - unusedresult
+        - unusedwrite
+    ireturn:
+      allow:
+        - error
+        - stdlib
+        - sqlmock
+    wrapcheck:
+      ignore-package-globs:
+        - google.golang.org/grpc/internal/status
+        - google.golang.org/grpc/status
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - funlen
+          - gosec
+        path: _test.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-rules:
-  - path: '_test.go'
-    linters:
-      - funlen
-      - gosec
-
-linters-settings:
-  cyclop:
-    max-complexity: 16
-  gci:
-    sections:
-      - standard
-      - default
-      - prefix(zfstools-go)
-    custom-order: true
-  ireturn:
-    allow:
-      - error
-      - stdlib
-      - sqlmock
-  govet:
-    enable:
-      - appends
-      - asmdecl
-      - assign
-      - atomic
-      - atomicalign
-      - bools
-      - buildtag
-      - cgocall
-      - composites
-      - copylocks
-      - deepequalerrors
-      - defers
-      - directive
-      - errorsas
-      - fieldalignment
-      - findcall
-      - framepointer
-      - httpresponse
-      - ifaceassert
-      - loopclosure
-      - lostcancel
-      - nilfunc
-      - nilness
-      - printf
-      - reflectvaluecompare
-      - shadow
-      - shift
-      - sigchanyzer
-      - slog
-      - sortslice
-      - stdmethods
-      - stringintconv
-      - structtag
-      - testinggoroutine
-      - tests
-      - timeformat
-      - unmarshal
-      - unreachable
-      - unsafeptr
-      - unusedresult
-      - unusedwrite
-  funlen:
-    lines: 100
-    statements: 55
-  wrapcheck:
-    ignorePackageGlobs:
-      - google.golang.org/grpc/internal/status
-      - google.golang.org/grpc/status
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(zfstools-go)
+      custom-order: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

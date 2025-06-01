@@ -27,7 +27,7 @@ jobs:
           go get ./cmd/zfs-cleanup-snapshots
           go get ./cmd/zfs-snapshot-mysql
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.64.7
+          version: v2.1.6
           args: --timeout=60m

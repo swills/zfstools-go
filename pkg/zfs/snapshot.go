@@ -138,14 +138,17 @@ func CreateSnapshot(targets []string, recursive bool, dbName string, dryRun, ver
 	cmdLine = append(cmdLine, targets...)
 
 	cmdStr := strings.Join(cmdLine, " ")
-	if dbName == "mysql" {
+
+	switch dbName {
+	case "mysql":
 		sql := fmt.Sprintf(`
 FLUSH LOGS;
 FLUSH TABLES WITH READ LOCK;
 SYSTEM %s;
 UNLOCK TABLES;`, cmdStr)
 		cmdStr = fmt.Sprintf(`mysql -e "%s"`, strings.ReplaceAll(sql, "\n", " "))
-	} else if dbName == "postgresql" {
+
+	case "postgresql":
 		cmdStr = fmt.Sprintf(`(psql -c "SELECT PG_START_BACKUP('zfs-auto-snapshot');" postgres ; %s ) ; psql -c "SELECT PG_STOP_BACKUP();" postgres`, cmdStr) //nolint:lll
 	}
 
