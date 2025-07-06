@@ -1,4 +1,6 @@
 # zfstools-go
+[![Go](https://github.com/swills/zfstools-go/actions/workflows/build.yml/badge.svg)](https://github.com/swills/zfstools-go/actions/workflows/build.yml)
+[![golangci-lint](https://github.com/swills/zfstools-go/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/swills/zfstools-go/actions/workflows/golangci-lint.yml)
 
 **zfstools-go** is a faithful reimplementation of the original [zfstools Ruby project](https://github.com/bdrewery/zfstools), rewritten in Go with equivalent behavior and improved error handling.
 
