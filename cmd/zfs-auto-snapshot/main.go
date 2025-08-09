@@ -15,9 +15,8 @@ import (
 )
 
 var (
-	Version   = "dev"
-	Commit    = "none"
-	BuildDate = "unknown"
+	Version = "dev"
+	Commit  = "none"
 )
 
 func usageWriter(writer io.Writer, name string) {
@@ -39,7 +38,7 @@ func usage() {
 }
 
 func version(writer io.Writer) {
-	_, _ = fmt.Fprintf(writer, "%s (commit %s, built %s)", Version, Commit, BuildDate)
+	_, _ = fmt.Fprintf(writer, "%s (commit %s)\n", Version, Commit)
 
 	os.Exit(0)
 }
