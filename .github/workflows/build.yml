@@ -130,14 +130,46 @@ jobs:
           path: artifacts/arm64-linux
       - name: Display structure of downloaded files
         run: ls -R artifacts
+      - name: rename zfs-auto-snapshot for amd64-freebsd
+        run: mv artifacts/amd64-freebsd/amd64-freebsd-zfs-auto-snapshot artifacts/amd64-freebsd/zfs-auto-snapshot
+      - name: rename zfs-cleanup-snapshots for amd64-freebsd
+        run: mv artifacts/amd64-freebsd/amd64-freebsd-zfs-cleanup-snapshots artifacts/amd64-freebsd/zfs-cleanup-snapshots
+      - name: rename zfs-snapshot-mysql for amd64-freebsd
+        run: mv artifacts/amd64-freebsd/amd64-freebsd-zfs-snapshot-mysql artifacts/amd64-freebsd/zfs-snapshot-mysql
+      - name: rename zfs-auto-snapshot for arm64-freebsd
+        run: mv artifacts/arm64-freebsd/arm64-freebsd-zfs-auto-snapshot artifacts/arm64-freebsd/zfs-auto-snapshot
+      - name: rename zfs-cleanup-snapshots for arm64-freebsd
+        run: mv artifacts/arm64-freebsd/arm64-freebsd-zfs-cleanup-snapshots artifacts/arm64-freebsd/zfs-cleanup-snapshots
+      - name: rename zfs-snapshot-mysql for arm64-freebsd
+        run: mv artifacts/arm64-freebsd/arm64-freebsd-zfs-snapshot-mysql artifacts/arm64-freebsd/zfs-snapshot-mysql
+      - name: rename zfs-auto-snapshot for amd64-linux
+        run: mv artifacts/amd64-linux/amd64-linux-zfs-auto-snapshot artifacts/amd64-linux/zfs-auto-snapshot
+      - name: rename zfs-cleanup-snapshots for amd64-linux
+        run: mv artifacts/amd64-linux/amd64-linux-zfs-cleanup-snapshots artifacts/amd64-linux/zfs-cleanup-snapshots
+      - name: rename zfs-snapshot-mysql for amd64-linux
+        run: mv artifacts/amd64-linux/amd64-linux-zfs-snapshot-mysql artifacts/amd64-linux/zfs-snapshot-mysql
+      - name: rename zfs-auto-snapshot for arm64-linux
+        run: mv artifacts/arm64-linux/arm64-linux-zfs-auto-snapshot artifacts/arm64-linux/zfs-auto-snapshot
+      - name: rename zfs-cleanup-snapshots for arm64-linux
+        run: mv artifacts/arm64-linux/arm64-linux-zfs-cleanup-snapshots artifacts/arm64-linux/zfs-cleanup-snapshots
+      - name: rename zfs-snapshot-mysql for arm64-linux
+        run: mv artifacts/arm64-linux/arm64-linux-zfs-snapshot-mysql artifacts/arm64-linux/zfs-snapshot-mysql
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+      - name: Install zip
+        uses: montudor/action-zip@v1
       - name: Zip Folder amd64-FreeBSD
-        run: cd artifacts/amd64-freebsd ; zip -r ../../zfstools-go-${{ github.ref_name }}-amd64-freebsd.zip .
+        run: zip -qq -r ../../zfstools-go-${{ github.ref_name }}-amd64-freebsd.zip zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+        working-directory: artifacts/amd64-freebsd
       - name: Zip Folder arm64-FreeBSD
-        run: cd artifacts/arm64-freebsd ; zip -r ../../zfstools-go-${{ github.ref_name }}-arm64-freebsd.zip .
+        run: zip -qq -r ../../zfstools-go-${{ github.ref_name }}-arm64-freebsd.zip zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+        working-directory: artifacts/arm64-freebsd
       - name: Zip Folder amd64-Linux
-        run: cd artifacts/amd64-linux ; zip -r ../../zfstools-go-${{ github.ref_name }}-amd64-linux.zip .
+        run: zip -qq -r ../../zfstools-go-${{ github.ref_name }}-amd64-linux.zip zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+        working-directory: artifacts/amd64-linux
       - name: Zip Folder arm64-Linux
-        run: cd artifacts/arm64-linux ; zip -r ../../zfstools-go-${{ github.ref_name }}-arm64-linux.zip .
+        run: zip -qq -r ../../zfstools-go-${{ github.ref_name }}-arm64-linux.zip zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+        working-directory: artifacts/arm64-linux
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
