@@ -39,9 +39,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          go get ./cmd/zfs-auto-snapshot
-          go get ./cmd/zfs-cleanup-snapshots
-          go get ./cmd/zfs-snapshot-mysql
+          go get ./...
 
       - name: Determine build variables
         id: vars
