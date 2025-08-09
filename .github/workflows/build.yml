@@ -57,6 +57,8 @@ jobs:
 
       - name: Build
         run: |
+          export GOOS=${{ matrix.os }}
+          export GOARCH=${{ matrix.arch }}
           go build -v -ldflags "\
             -X 'main.Version=${{ steps.vars.outputs.version }}' \
             -X 'main.Commit=${{ steps.vars.outputs.commit }}' \
