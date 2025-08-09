@@ -51,17 +51,18 @@ jobs:
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
           export GOFLAGS="-trimpath"
+          mkdir -p ${{ matrix.arch }}-${{ matrix.os }}
           go build -v -ldflags "-s -w -extldflags -static \
             -X 'main.Version=${{ steps.vars.outputs.version }}' \
             -X 'main.Commit=${{ steps.vars.outputs.commit }}' \
             -buildid=${{ steps.vars.outputs.version }}.${{ steps.vars.outputs.commit }} \
-          " -o ${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }} ./cmd/${{ matrix.binary }}
+          " -o ${{ matrix.arch }}-${{ matrix.os }}/${{ matrix.binary }} ./cmd/${{ matrix.binary }}
       - name: Upload binaries as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }}
+          name: binaries-${{ matrix.arch }}-${{ matrix.os }}-${{ matrix.binary }}
           path: |
-            ${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }}
+            ${{ matrix.arch }}-${{ matrix.os }}/${{ matrix.binary }}
   release:
     runs-on: arc-runner-set-zfstools
     needs: build
@@ -71,11 +72,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Zip Folder amd64-FreeBSD
+        run: cd amd64-freebsd ; zip -r zfstools-go-${{ github.ref_name }}-amd64-freebsd.zip .
+      - name: Zip Folder arm64-FreeBSD
+        run: cd arm64-freebsd ; zip -r zfstools-go-${{ github.ref_name }}-arm64-freebsd.zip .
+      - name: Zip Folder amd64-Linux
+        run: cd amd64-linux ; zip -r zfstools-go-${{ github.ref_name }}-amd64-linux.zip .
+      - name: Zip Folder arm64-Linux
+        run: cd arm64-linux ; zip -r zfstools-go-${{ github.ref_name }}-arm64-linux.zip .
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          files: artifacts/**
+          files: artifacts/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
