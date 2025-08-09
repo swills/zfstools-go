@@ -156,25 +156,23 @@ jobs:
         run: mv artifacts/arm64-linux/arm64-linux-zfs-snapshot-mysql artifacts/arm64-linux/zfs-snapshot-mysql
       - name: Display structure of downloaded files
         run: ls -R artifacts
-      - name: Install zip
-        uses: montudor/action-zip@v1
-      - name: Zip Folder amd64-FreeBSD
-        run: zip -qq -r ../../zfstools-go-${{ github.ref_name }}-amd64-freebsd.zip zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+      - name: tar amd64-FreeBSD
+        run: tar -cfj ../../zfstools-go-${{ github.ref_name }}-amd64-freebsd.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
         working-directory: artifacts/amd64-freebsd
-      - name: Zip Folder arm64-FreeBSD
-        run: zip -qq -r ../../zfstools-go-${{ github.ref_name }}-arm64-freebsd.zip zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+      - name: tar arm64-FreeBSD
+        run: tar -cfj ../../zfstools-go-${{ github.ref_name }}-arm64-freebsd.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
         working-directory: artifacts/arm64-freebsd
-      - name: Zip Folder amd64-Linux
-        run: zip -qq -r ../../zfstools-go-${{ github.ref_name }}-amd64-linux.zip zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+      - name: tar amd64-Linux
+        run: tar -cfj ../../zfstools-go-${{ github.ref_name }}-amd64-linux.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
         working-directory: artifacts/amd64-linux
-      - name: Zip Folder arm64-Linux
-        run: zip -qq -r ../../zfstools-go-${{ github.ref_name }}-arm64-linux.zip zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+      - name: tar arm64-Linux
+        run: tar -cfj ../../zfstools-go-${{ github.ref_name }}-arm64-linux.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
         working-directory: artifacts/arm64-linux
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          files: artifacts/*.zip
+          files: artifacts/*.tar.bz2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
