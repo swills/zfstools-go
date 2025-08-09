@@ -1,6 +1,11 @@
-name: Go
+name: Build and Release Go Binary
+
 on:
   push:
+    branches:
+      - main
+    tags:
+      - "v*"
   workflow_dispatch:
   schedule:
     - cron: "0 0 * * 0"
@@ -9,6 +14,9 @@ env:
   GOGC: 50
   CGO_ENABLED: 0
 
+permissions:
+  contents: write   # needed for creating releases
+
 jobs:
   build:
     runs-on: arc-runner-set-zfstools
@@ -16,22 +24,69 @@ jobs:
       matrix:
         os: [ 'freebsd', 'linux']
         arch: [ 'amd64', 'arm64']
+        binary: [ 'zfs-auto-snapshot', 'zfs-cleanup-snapshots', 'zfs-snapshot-mysql']
 
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Go
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # get all tags
+
+      - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
+
       - name: Install dependencies
         run: |
           go get ./cmd/zfs-auto-snapshot
           go get ./cmd/zfs-cleanup-snapshots
           go get ./cmd/zfs-snapshot-mysql
+
+      - name: Determine build variables
+        id: vars
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          if [[ "$VERSION" == "" ]]; then
+            VERSION="dev"
+          fi
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+
       - name: Build
         run: |
-          export GOOS=${{ matrix.os }}
-          export GOARCH=${{ matrix.arch }}
-          go build -o zfs-auto-snapshot-${GOOS}-${GOARCH} ./cmd/zfs-auto-snapshot
-          go build -o zfs-cleanup-snapshots-${GOOS}-${GOARCH} ./cmd/zfs-cleanup-snapshots
-          go build -o zfs-snapshot-mysql-${GOOS}-${GOARCH} ./cmd/zfs-snapshot-mysql
+          go build -v -ldflags "\
+            -X 'main.Version=${{ steps.vars.outputs.version }}' \
+            -X 'main.Commit=${{ steps.vars.outputs.commit }}' \
+            -X 'main.BuildDate=${{ steps.vars.outputs.date }}' \
+          " -o ${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }} ./cmd/${{ matrix.binary }}
+
+      - name: Upload binaries as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            ${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }}
+
+  release:
+    runs-on: arc-runner-set-zfstools
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: artifacts/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -8,8 +8,18 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	flag "github.com/spf13/pflag"
+	"github.com/spf13/pflag"
 )
+
+var (
+	Version   = "dev"
+	Commit    = "none"
+	BuildDate = "unknown"
+)
+
+func FullVersion() string {
+	return Version + " (commit " + Commit + ", built " + BuildDate + ")"
+}
 
 func usageWriter(writer io.Writer, name string) {
 	_, _ = fmt.Fprintf(writer, "Usage: %s [-dnv] DATASET\n", name)
@@ -30,17 +40,23 @@ func main() {
 
 	var verbose bool
 
-	flag.BoolVarP(&debug, "debug", "d", false, "")
-	flag.BoolVarP(&dryRun, "dry-run", "n", false, "")
-	flag.BoolVarP(&verbose, "verbose", "v", false, "")
-	flag.Usage = usage
-	flag.Parse()
+	pflag.BoolVarP(&debug, "debug", "d", false, "")
+	pflag.BoolVarP(&dryRun, "dry-run", "n", false, "")
+	pflag.BoolVarP(&verbose, "verbose", "v", false, "")
+	pflag.Usage = usage
+	showVersion := pflag.BoolP("version", "", false, "Print version information and exit")
+	pflag.Parse()
 
-	if flag.NArg() < 1 {
+	if *showVersion {
+		fmt.Println(FullVersion())
+		os.Exit(0)
+	}
+
+	if pflag.NArg() < 1 {
 		usage()
 	}
 
-	dataset := flag.Arg(0)
+	dataset := pflag.Arg(0)
 	timestamp := time.Now().Format("2006-01-02T15:04:05")
 	snapshot := fmt.Sprintf("%s@%s", dataset, timestamp)
 

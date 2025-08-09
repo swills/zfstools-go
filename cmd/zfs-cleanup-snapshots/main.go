@@ -1,8 +1,8 @@
 package main
 
 import (
-	"flag"
 	"fmt"
+	"github.com/spf13/pflag"
 	"io"
 	"os"
 	"strings"
@@ -12,6 +12,12 @@ import (
 	"zfstools-go/internal/config"
 	"zfstools-go/internal/zfs"
 	"zfstools-go/internal/zfstools"
+)
+
+var (
+	Version   = "dev"
+	Commit    = "none"
+	BuildDate = "unknown"
 )
 
 func usageWriter(writer io.Writer, name string) {
@@ -28,6 +34,10 @@ func usage() {
 	os.Exit(0)
 }
 
+func FullVersion() string {
+	return Version + " (commit " + Commit + ", built " + BuildDate + ")"
+}
+
 func main() {
 	cfg := config.Config{
 		Timestamp: time.Now(),
@@ -35,16 +45,21 @@ func main() {
 
 	var pool string
 
-	flag.BoolVar(&cfg.Debug, "d", false, "")
-	flag.BoolVar(&cfg.DryRun, "n", false, "")
-	flag.BoolVar(&cfg.UseThreads, "p", false, "")
-	flag.StringVar(&pool, "P", "", "")
-	flag.BoolVar(&cfg.Verbose, "v", false, "")
+	pflag.BoolVar(&cfg.Debug, "d", false, "")
+	pflag.BoolVar(&cfg.DryRun, "n", false, "")
+	pflag.BoolVar(&cfg.UseThreads, "p", false, "")
+	pflag.StringVar(&pool, "P", "", "")
+	pflag.BoolVar(&cfg.Verbose, "v", false, "")
+	showVersion := pflag.BoolP("version", "", false, "Print version information and exit")
+	pflag.Usage = usage
+	pflag.Parse()
 
-	flag.Usage = usage
-	flag.Parse()
+	if *showVersion {
+		fmt.Println(FullVersion())
+		os.Exit(0)
+	}
 
-	if len(flag.Args()) > 0 {
+	if len(pflag.Args()) > 0 {
 		usage()
 	}
 

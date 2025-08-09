@@ -14,6 +14,12 @@ import (
 	"zfstools-go/internal/zfstools"
 )
 
+var (
+	Version   = "dev"
+	Commit    = "none"
+	BuildDate = "unknown"
+)
+
 func usageWriter(writer io.Writer, name string) {
 	_, _ = fmt.Fprintf(writer, "Usage: %s [-dknpuv] <INTERVAL> <KEEP>\n", name)
 	_, _ = fmt.Fprintln(writer, "    -d              Show debug output.")
@@ -30,6 +36,10 @@ func usageWriter(writer io.Writer, name string) {
 func usage() {
 	usageWriter(os.Stderr, os.Args[0])
 	os.Exit(0)
+}
+
+func FullVersion() string {
+	return Version + " (commit " + Commit + ", built " + BuildDate + ")"
 }
 
 func main() {
@@ -53,7 +63,14 @@ func main() {
 	pflag.BoolVarP(&cfg.Debug, "debug", "d", false, "")
 	pflag.StringVarP(&cfg.SnapshotPrefix, "snapshot-prefix", "s", "zfs-auto-snap", "")
 	pflag.Usage = usage
+	showVersion := pflag.BoolP("version", "", false, "Print version information and exit")
+
 	pflag.Parse()
+
+	if *showVersion {
+		fmt.Println(FullVersion())
+		os.Exit(0)
+	}
 
 	if keepZeroSized {
 		cfg.ShouldDestroyZeroSized = false
