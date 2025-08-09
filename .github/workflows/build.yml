@@ -59,7 +59,8 @@ jobs:
         run: |
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
-          go build -v -ldflags "\
+          export GOFLAGS="-trimpath"
+          go build -v -ldflags "-s -w -extldflags -static \
             -X 'main.Version=${{ steps.vars.outputs.version }}' \
             -X 'main.Commit=${{ steps.vars.outputs.commit }}' \
             -buildid=${{ steps.vars.outputs.version }}.${{ steps.vars.outputs.commit }} \
