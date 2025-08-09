@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/spf13/pflag"
 	"io"
 	"os"
 	"strings"
 	"time"
 	_ "time/tzdata"
+
+	"github.com/spf13/pflag"
 
 	"zfstools-go/internal/config"
 	"zfstools-go/internal/zfs"
@@ -34,8 +35,10 @@ func usage() {
 	os.Exit(0)
 }
 
-func FullVersion() string {
-	return Version + " (commit " + Commit + ", built " + BuildDate + ")"
+func version(writer io.Writer) {
+	_, _ = fmt.Fprintf(writer, "%s (commit %s, built %s)", Version, Commit, BuildDate)
+
+	os.Exit(0)
 }
 
 func main() {
@@ -55,8 +58,7 @@ func main() {
 	pflag.Parse()
 
 	if *showVersion {
-		fmt.Println(FullVersion())
-		os.Exit(0)
+		version(os.Stdout)
 	}
 
 	if len(pflag.Args()) > 0 {

@@ -17,10 +17,6 @@ var (
 	BuildDate = "unknown"
 )
 
-func FullVersion() string {
-	return Version + " (commit " + Commit + ", built " + BuildDate + ")"
-}
-
 func usageWriter(writer io.Writer, name string) {
 	_, _ = fmt.Fprintf(writer, "Usage: %s [-dnv] DATASET\n", name)
 	_, _ = fmt.Fprintln(writer, "    -d              Show debug output.")
@@ -30,6 +26,12 @@ func usageWriter(writer io.Writer, name string) {
 
 func usage() {
 	usageWriter(os.Stderr, os.Args[0])
+	os.Exit(0)
+}
+
+func version(writer io.Writer) {
+	_, _ = fmt.Fprintf(writer, "%s (commit %s, built %s)", Version, Commit, BuildDate)
+
 	os.Exit(0)
 }
 
@@ -48,8 +50,7 @@ func main() {
 	pflag.Parse()
 
 	if *showVersion {
-		fmt.Println(FullVersion())
-		os.Exit(0)
+		version(os.Stdout)
 	}
 
 	if pflag.NArg() < 1 {
