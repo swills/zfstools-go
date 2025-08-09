@@ -3,10 +3,8 @@ stages:
   - test
   - upload
   - release
-
 variables:
   GOTOOLCHAIN: local
-
 zfs-auto-snapshot:
   stage: build
   needs: []
@@ -19,7 +17,6 @@ zfs-auto-snapshot:
     - export GOOS=freebsd
     - export GOARCH=amd64
     - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-auto-snapshot ./cmd/zfs-auto-snapshot
-
 zfs-cleanup-snapshots:
   stage: build
   needs: []
@@ -32,7 +29,6 @@ zfs-cleanup-snapshots:
     - export GOOS=freebsd
     - export GOARCH=amd64
     - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-cleanup-snapshots ./cmd/zfs-cleanup-snapshots
-
 zfs-snapshot-mysql:
   stage: build
   needs: []
@@ -45,7 +41,6 @@ zfs-snapshot-mysql:
     - export GOOS=freebsd
     - export GOARCH=amd64
     - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-snapshot-mysql ./cmd/zfs-snapshot-mysql
-
 lint:
   stage: test
   needs: []
@@ -60,7 +55,6 @@ lint:
     - git diff | diff -u /dev/null -
     - go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.7
     - golangci-lint run ./...
-
 go-test:
   stage: test
   needs: []
