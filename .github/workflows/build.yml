@@ -62,7 +62,7 @@ jobs:
           go build -v -ldflags "\
             -X 'main.Version=${{ steps.vars.outputs.version }}' \
             -X 'main.Commit=${{ steps.vars.outputs.commit }}' \
-            -X 'main.BuildDate=${{ steps.vars.outputs.date }}' \
+            -buildid=${{ steps.vars.outputs.version }}.${{ steps.vars.outputs.commit }} \
           " -o ${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }} ./cmd/${{ matrix.binary }}
 
       - name: Upload binaries as artifact
