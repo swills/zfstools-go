@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"zfstools-go/pkg/config"
-	"zfstools-go/pkg/zfs"
+	"zfstools-go/internal/config"
+	"zfstools-go/internal/zfs"
 )
 
 func snapshotProperty() string {

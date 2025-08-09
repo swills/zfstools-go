@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"zfstools-go/pkg/config"
-	"zfstools-go/pkg/zfstools"
+	"zfstools-go/internal/config"
+	"zfstools-go/internal/zfstools"
 )
 
 func usageWriter(writer io.Writer, name string) {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-test/deep"
 
-	"zfstools-go/pkg/zfstoolstest"
+	"zfstools-go/internal/zfstoolstest"
 )
 
 //nolint:paralleltest

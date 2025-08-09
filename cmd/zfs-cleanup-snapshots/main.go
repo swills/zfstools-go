@@ -9,9 +9,9 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"zfstools-go/pkg/config"
-	"zfstools-go/pkg/zfs"
-	"zfstools-go/pkg/zfstools"
+	"zfstools-go/internal/config"
+	"zfstools-go/internal/zfs"
+	"zfstools-go/internal/zfstools"
 )
 
 func usageWriter(writer io.Writer, name string) {

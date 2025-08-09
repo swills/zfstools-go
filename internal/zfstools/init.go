@@ -1,6 +1,6 @@
 package zfstools
 
-import "zfstools-go/pkg/zfs"
+import "zfstools-go/internal/zfs"
 
 var createManySnapshotsFn = zfs.CreateManySnapshots
 

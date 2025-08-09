@@ -8,9 +8,9 @@ import (
 
 	"github.com/go-test/deep"
 
-	"zfstools-go/pkg/config"
-	"zfstools-go/pkg/zfs"
-	"zfstools-go/pkg/zfstoolstest"
+	"zfstools-go/internal/config"
+	"zfstools-go/internal/zfs"
+	"zfstools-go/internal/zfstoolstest"
 )
 
 var createdSnapshots []string
