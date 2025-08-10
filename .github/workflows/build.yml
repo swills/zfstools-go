@@ -157,16 +157,16 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R artifacts
       - name: tar amd64-FreeBSD
-        run: tar -cfj ../../zfstools-go-${{ github.ref_name }}-amd64-freebsd.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+        run: tar -cjf ../../zfstools-go-${{ github.ref_name }}-amd64-freebsd.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
         working-directory: artifacts/amd64-freebsd
       - name: tar arm64-FreeBSD
-        run: tar -cfj ../../zfstools-go-${{ github.ref_name }}-arm64-freebsd.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+        run: tar -cjf ../../zfstools-go-${{ github.ref_name }}-arm64-freebsd.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
         working-directory: artifacts/arm64-freebsd
       - name: tar amd64-Linux
-        run: tar -cfj ../../zfstools-go-${{ github.ref_name }}-amd64-linux.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+        run: tar -cjf ../../zfstools-go-${{ github.ref_name }}-amd64-linux.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
         working-directory: artifacts/amd64-linux
       - name: tar arm64-Linux
-        run: tar -cfj ../../zfstools-go-${{ github.ref_name }}-arm64-linux.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+        run: tar -cjf ../../zfstools-go-${{ github.ref_name }}-arm64-linux.tar.bz2 zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
         working-directory: artifacts/arm64-linux
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
