@@ -56,12 +56,8 @@ func TestListPools(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "onePoolAllProps",
-			args: args{
-				name:     "tank",
-				cmdProps: nil,
-				debug:    false,
-			},
+			name:        "onePoolAllProps",
+			args:        args{name: "tank", cmdProps: nil, debug: false},
 			mockCmdFunc: "TestListPools_onePoolAllProps",
 			want: []Pool{
 				{
@@ -77,12 +73,8 @@ func TestListPools(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "allPoolsOneProp",
-			args: args{
-				name:     "",
-				cmdProps: []string{"health"},
-				debug:    false,
-			},
+			name:        "allPoolsOneProp",
+			args:        args{name: "", cmdProps: []string{"health"}, debug: false},
 			mockCmdFunc: "TestListPools_allPoolsOneProp",
 			want: []Pool{
 				{
@@ -101,12 +93,8 @@ func TestListPools(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "onePoolTwoProps",
-			args: args{
-				name:     "tank",
-				cmdProps: []string{"health", "feature@bookmarks"},
-				debug:    false,
-			},
+			name:        "onePoolTwoProps",
+			args:        args{name: "tank", cmdProps: []string{"health", "feature@bookmarks"}, debug: false},
 			mockCmdFunc: "TestListPools_onePoolTwoProps",
 			want: []Pool{
 				{

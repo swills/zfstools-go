@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -70,7 +71,7 @@ func main() {
 	}
 
 	if !dryRun {
-		cmd := exec.Command("sh", "-c", mysqlCmd)
+		cmd := exec.CommandContext(context.Background(), "sh", "-c", mysqlCmd)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		_ = cmd.Run()
