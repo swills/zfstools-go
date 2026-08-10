@@ -27,7 +27,7 @@ All command-line options, behaviors, and output formats exactly match the origin
 
 ## Installation
 
-Build with Go 1.23 or later:
+Build:
 
 ```sh
 go build -o zfs-auto-snapshot ./cmd/zfs-auto-snapshot
