@@ -52,8 +52,10 @@ func main() {
 	pflag.BoolVar(&cfg.UseThreads, "p", false, "")
 	pflag.StringVar(&pool, "P", "", "")
 	pflag.BoolVar(&cfg.Verbose, "v", false, "")
+
 	showVersion := pflag.BoolP("version", "", false, "Print version information and exit")
 	pflag.Usage = usage
+
 	pflag.Parse()
 
 	if *showVersion {
@@ -68,6 +70,7 @@ func main() {
 	snapshots, err := zfs.ListSnapshotsFn(pool, true, cfg.Debug)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error listing snapshots: %v\n", err)
+
 		os.Exit(1)
 	}
 

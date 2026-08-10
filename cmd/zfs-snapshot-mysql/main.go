@@ -45,8 +45,10 @@ func main() {
 	pflag.BoolVarP(&debug, "debug", "d", false, "")
 	pflag.BoolVarP(&dryRun, "dry-run", "n", false, "")
 	pflag.BoolVarP(&verbose, "verbose", "v", false, "")
+
 	pflag.Usage = usage
 	showVersion := pflag.BoolP("version", "", false, "Print version information and exit")
+
 	pflag.Parse()
 
 	if *showVersion {

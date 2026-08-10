@@ -63,6 +63,7 @@ func main() {
 	pflag.BoolVarP(&cfg.Verbose, "verbose", "v", false, "")
 	pflag.BoolVarP(&cfg.Debug, "debug", "d", false, "")
 	pflag.StringVarP(&cfg.SnapshotPrefix, "snapshot-prefix", "s", "zfs-auto-snap", "")
+
 	pflag.Usage = usage
 	showVersion := pflag.BoolP("version", "", false, "Print version information and exit")
 
