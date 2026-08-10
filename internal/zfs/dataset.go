@@ -12,11 +12,6 @@ type Dataset struct {
 	DB         string
 }
 
-// Equals returns true if the other dataset has the same name
-func (d Dataset) Equals(other Dataset) bool {
-	return d.Name == other.Name
-}
-
 // ListDatasets returns a list of ZFS datasets for the pool and properties
 func ListDatasets(pool string, properties []string, debug bool) []Dataset {
 	var datasets []Dataset

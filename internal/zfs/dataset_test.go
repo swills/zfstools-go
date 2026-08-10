@@ -162,22 +162,6 @@ func TestListDatasets(t *testing.T) {
 	}
 }
 
-func TestDataset_Equal(t *testing.T) {
-	t.Parallel()
-
-	datasetA := Dataset{Name: "tank/data"}
-	datasetB := Dataset{Name: "tank/data"}
-	datasetC := Dataset{Name: "tank/logs"}
-
-	if !datasetA.Equals(datasetB) {
-		t.Error("expected datasetA and datasetB to be equal")
-	}
-
-	if datasetA.Equals(datasetC) {
-		t.Error("expected datasetA and datasetC to be different")
-	}
-}
-
 // test helpers from here down
 
 //nolint:paralleltest
