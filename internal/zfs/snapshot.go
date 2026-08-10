@@ -329,7 +329,7 @@ func DestroySnapshot(name string, dryRun, debug bool) error {
 	if !dryRun {
 		err = RunZfsFn("zfs", args...).Run()
 		if err != nil {
-			return fmt.Errorf("error creating snapshot: %w", err)
+			return fmt.Errorf("error destroying snapshot: %w", err)
 		}
 	}
 
