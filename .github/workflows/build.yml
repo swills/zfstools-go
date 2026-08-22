@@ -20,7 +20,6 @@ jobs:
       matrix:
         os: ['freebsd', 'linux']
         arch: ['amd64', 'arm64']
-        binary: ['zfs-auto-snapshot', 'zfs-cleanup-snapshots', 'zfs-snapshot-mysql']
     steps:
       - name: Checkout source
         uses: actions/checkout@v7
@@ -51,125 +50,37 @@ jobs:
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
           export GOFLAGS="-trimpath"
-          mkdir -p ${{ matrix.arch }}-${{ matrix.os }}
           go build -v -ldflags "-s -w -extldflags -static \
             -X 'main.Version=${{ steps.vars.outputs.version }}' \
             -X 'main.Commit=${{ steps.vars.outputs.commit }}' \
             -buildid=${{ steps.vars.outputs.version }}.${{ steps.vars.outputs.commit }} \
-          " -o ${{ matrix.arch }}-${{ matrix.os }}-${{ matrix.binary }} ./cmd/${{ matrix.binary }}
+          " -o zfs-auto-snapshot ./cmd/multicall
       - name: Upload binaries as artifact
         uses: actions/upload-artifact@v7
         with:
-          name: binary-${{ matrix.arch }}-${{ matrix.os }}-${{ matrix.binary }}
+          name: binary-${{ matrix.arch }}-${{ matrix.os }}
           path: |
-            ${{ matrix.arch }}-${{ matrix.os }}-${{ matrix.binary }}
+            zfs-auto-snapshot
   release:
     runs-on: arc-runner-set-zfstools
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - name: Download amd64-freebsd-zfs-auto-snapshot
+      - name: Download binaries
         uses: actions/download-artifact@v8
         with:
-          name: binary-amd64-freebsd-zfs-auto-snapshot
-          path: artifacts/amd64-freebsd
-      - name: Download amd64-freebsd-zfs-cleanup-snapshots
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-amd64-freebsd-zfs-cleanup-snapshots
-          path: artifacts/amd64-freebsd
-      - name: Download amd64-freebsd-zfs-snapshot-mysql
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-amd64-freebsd-zfs-snapshot-mysql
-          path: artifacts/amd64-freebsd
-      - name: Download arm64-freebsd-zfs-auto-snapshot
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-arm64-freebsd-zfs-auto-snapshot
-          path: artifacts/arm64-freebsd
-      - name: Download arm64-freebsd-zfs-cleanup-snapshots
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-arm64-freebsd-zfs-cleanup-snapshots
-          path: artifacts/arm64-freebsd
-      - name: Download arm64-freebsd-zfs-snapshot-mysql
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-arm64-freebsd-zfs-snapshot-mysql
-          path: artifacts/arm64-freebsd
-      - name: Download amd64-linux-zfs-auto-snapshot
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-amd64-linux-zfs-auto-snapshot
-          path: artifacts/amd64-linux
-      - name: Download amd64-linux-zfs-cleanup-snapshots
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-amd64-linux-zfs-cleanup-snapshots
-          path: artifacts/amd64-linux
-      - name: Download amd64-linux-zfs-snapshot-mysql
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-amd64-linux-zfs-snapshot-mysql
-          path: artifacts/amd64-linux
-      - name: Download arm64-linux-zfs-auto-snapshot
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-arm64-linux-zfs-auto-snapshot
-          path: artifacts/arm64-linux
-      - name: Download arm64-linux-zfs-cleanup-snapshots
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-arm64-linux-zfs-cleanup-snapshots
-          path: artifacts/arm64-linux
-      - name: Download arm64-linux-zfs-snapshot-mysql
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-arm64-linux-zfs-snapshot-mysql
-          path: artifacts/arm64-linux
-      - name: Display structure of downloaded files
-        run: ls -R artifacts
-      - name: rename zfs-auto-snapshot for amd64-freebsd
-        run: mv artifacts/amd64-freebsd/amd64-freebsd-zfs-auto-snapshot artifacts/amd64-freebsd/zfs-auto-snapshot
-      - name: rename zfs-cleanup-snapshots for amd64-freebsd
-        run: mv artifacts/amd64-freebsd/amd64-freebsd-zfs-cleanup-snapshots artifacts/amd64-freebsd/zfs-cleanup-snapshots
-      - name: rename zfs-snapshot-mysql for amd64-freebsd
-        run: mv artifacts/amd64-freebsd/amd64-freebsd-zfs-snapshot-mysql artifacts/amd64-freebsd/zfs-snapshot-mysql
-      - name: rename zfs-auto-snapshot for arm64-freebsd
-        run: mv artifacts/arm64-freebsd/arm64-freebsd-zfs-auto-snapshot artifacts/arm64-freebsd/zfs-auto-snapshot
-      - name: rename zfs-cleanup-snapshots for arm64-freebsd
-        run: mv artifacts/arm64-freebsd/arm64-freebsd-zfs-cleanup-snapshots artifacts/arm64-freebsd/zfs-cleanup-snapshots
-      - name: rename zfs-snapshot-mysql for arm64-freebsd
-        run: mv artifacts/arm64-freebsd/arm64-freebsd-zfs-snapshot-mysql artifacts/arm64-freebsd/zfs-snapshot-mysql
-      - name: rename zfs-auto-snapshot for amd64-linux
-        run: mv artifacts/amd64-linux/amd64-linux-zfs-auto-snapshot artifacts/amd64-linux/zfs-auto-snapshot
-      - name: rename zfs-cleanup-snapshots for amd64-linux
-        run: mv artifacts/amd64-linux/amd64-linux-zfs-cleanup-snapshots artifacts/amd64-linux/zfs-cleanup-snapshots
-      - name: rename zfs-snapshot-mysql for amd64-linux
-        run: mv artifacts/amd64-linux/amd64-linux-zfs-snapshot-mysql artifacts/amd64-linux/zfs-snapshot-mysql
-      - name: rename zfs-auto-snapshot for arm64-linux
-        run: mv artifacts/arm64-linux/arm64-linux-zfs-auto-snapshot artifacts/arm64-linux/zfs-auto-snapshot
-      - name: rename zfs-cleanup-snapshots for arm64-linux
-        run: mv artifacts/arm64-linux/arm64-linux-zfs-cleanup-snapshots artifacts/arm64-linux/zfs-cleanup-snapshots
-      - name: rename zfs-snapshot-mysql for arm64-linux
-        run: mv artifacts/arm64-linux/arm64-linux-zfs-snapshot-mysql artifacts/arm64-linux/zfs-snapshot-mysql
-      - name: Display structure of downloaded files
-        run: ls -R artifacts
-      - name: tar amd64-FreeBSD
-        run: tar -czvf ../zfstools-go-${{ github.ref_name }}-amd64-freebsd.tar.gz zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
-        working-directory: artifacts/amd64-freebsd
-      - name: tar arm64-FreeBSD
-        run: tar -czvf ../zfstools-go-${{ github.ref_name }}-arm64-freebsd.tar.gz zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
-        working-directory: artifacts/arm64-freebsd
-      - name: tar amd64-Linux
-        run: tar -czvf ../zfstools-go-${{ github.ref_name }}-amd64-linux.tar.gz zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
-        working-directory: artifacts/amd64-linux
-      - name: tar arm64-Linux
-        run: tar -czvf ../zfstools-go-${{ github.ref_name }}-arm64-linux.tar.gz zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
-        working-directory: artifacts/arm64-linux
-      - name: Display structure of downloaded files
-        run: ls -R artifacts
+          pattern: binary-*
+          path: artifacts
+      - name: Create hard links and archives
+        run: |
+          for platform in amd64-freebsd arm64-freebsd amd64-linux arm64-linux; do
+            dir="artifacts/binary-${platform}"
+            chmod 0755 "${dir}/zfs-auto-snapshot"
+            ln "${dir}/zfs-auto-snapshot" "${dir}/zfs-cleanup-snapshots"
+            ln "${dir}/zfs-auto-snapshot" "${dir}/zfs-snapshot-mysql"
+            tar -C "${dir}" -czvf "artifacts/zfstools-go-${{ github.ref_name }}-${platform}.tar.gz" \
+              zfs-auto-snapshot zfs-cleanup-snapshots zfs-snapshot-mysql
+          done
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:

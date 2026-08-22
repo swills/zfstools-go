@@ -4,13 +4,13 @@
 
 **zfstools-go** is a faithful reimplementation of the original [zfstools Ruby project](https://github.com/bdrewery/zfstools), rewritten in Go with equivalent behavior and improved error handling.
 
-This toolkit provides automated ZFS snapshot management using three tools:
+This toolkit provides automated ZFS snapshot management using three command names:
 
 - `zfs-auto-snapshot`
 - `zfs-cleanup-snapshots`
 - `zfs-snapshot-mysql`
 
-All command-line options, behaviors, and output formats exactly match the original Ruby tools.
+The commands are hard links to one multi-call binary, which selects its behavior from the name used to invoke it. All command-line options, behaviors, and output formats exactly match the original Ruby tools.
 
 ---
 
@@ -29,18 +29,20 @@ All command-line options, behaviors, and output formats exactly match the origin
 Build:
 
 ```sh
-go build -o zfs-auto-snapshot ./cmd/zfs-auto-snapshot
-go build -o zfs-cleanup-snapshots ./cmd/zfs-cleanup-snapshots
-go build -o zfs-snapshot-mysql ./cmd/zfs-snapshot-mysql
+go build -o zfs-auto-snapshot ./cmd/multicall
+ln -f zfs-auto-snapshot zfs-cleanup-snapshots
+ln -f zfs-auto-snapshot zfs-snapshot-mysql
 ```
 
-You can then install them in your system path:
+You can then install the binary and create the links in your system path:
 
 ```sh
 sudo install zfs-auto-snapshot /usr/local/sbin/
-sudo install zfs-cleanup-snapshots /usr/local/sbin/
-sudo install zfs-snapshot-mysql /usr/local/sbin/
+sudo ln -f /usr/local/sbin/zfs-auto-snapshot /usr/local/sbin/zfs-cleanup-snapshots
+sudo ln -f /usr/local/sbin/zfs-auto-snapshot /usr/local/sbin/zfs-snapshot-mysql
 ```
+
+The links must be on the same filesystem. Recreate both links when upgrading so all three names point to the newly installed inode.
 
 ---
 

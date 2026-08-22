@@ -13,5 +13,5 @@ var (
 )
 
 func main() {
-	os.Exit(cli.RunCleanupSnapshots(os.Args[0], os.Args[1:], os.Stdout, os.Stderr, Version, Commit))
+	os.Exit(cli.Run(os.Args[0], os.Args[1:], os.Stdout, os.Stderr, Version, Commit))
 }
