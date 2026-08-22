@@ -29,7 +29,7 @@ The commands are hard links to one multi-call binary, which selects its behavior
 Build:
 
 ```sh
-go build -o zfs-auto-snapshot ./cmd/multicall
+go build -o zfs-auto-snapshot ./cmd/zfs-auto-snapshot
 ln -f zfs-auto-snapshot zfs-cleanup-snapshots
 ln -f zfs-auto-snapshot zfs-snapshot-mysql
 ```

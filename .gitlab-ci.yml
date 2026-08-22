@@ -5,7 +5,7 @@ stages:
   - release
 variables:
   GOTOOLCHAIN: local
-multicall:
+zfs-auto-snapshot:
   stage: build
   needs: []
   tags:
@@ -16,7 +16,7 @@ multicall:
     - export GO_LDFLAGS="-s -w -extldflags -static -buildid=${CI_COMMIT_SHA}"
     - export GOOS=freebsd
     - export GOARCH=amd64
-    - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-auto-snapshot ./cmd/multicall
+    - go build "${GOFLAGS}" -ldflags="${GO_LDFLAGS}" -o zfs-auto-snapshot ./cmd/zfs-auto-snapshot
     - ln zfs-auto-snapshot zfs-cleanup-snapshots
     - ln zfs-auto-snapshot zfs-snapshot-mysql
 lint:

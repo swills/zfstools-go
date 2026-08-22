@@ -54,7 +54,7 @@ jobs:
             -X 'main.Version=${{ steps.vars.outputs.version }}' \
             -X 'main.Commit=${{ steps.vars.outputs.commit }}' \
             -buildid=${{ steps.vars.outputs.version }}.${{ steps.vars.outputs.commit }} \
-          " -o zfs-auto-snapshot ./cmd/multicall
+          " -o zfs-auto-snapshot ./cmd/zfs-auto-snapshot
       - name: Upload binaries as artifact
         uses: actions/upload-artifact@v7
         with:
