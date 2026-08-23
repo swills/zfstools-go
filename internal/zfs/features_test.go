@@ -1,93 +1,72 @@
 package zfs
 
-import (
-	"sync"
-	"testing"
-)
+import "testing"
 
-//nolint:paralleltest
-func TestHasBookmarks_True(t *testing.T) {
-	resetFeatures()
+func TestFeatureDetectorHasBookmarks(t *testing.T) {
+	t.Parallel()
 
-	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
-		return []Pool{
-			{Properties: map[string]string{"feature@bookmarks": "enabled"}},
-		}, nil
+	tests := []struct {
+		listPools func(string, []string, bool) ([]Pool, error)
+		name      string
+		want      bool
+	}{
+		{
+			name: "supported",
+			listPools: func(_ string, _ []string, _ bool) ([]Pool, error) {
+				return []Pool{{Properties: map[string]string{"feature@bookmarks": "enabled"}}}, nil
+			},
+			want: true,
+		},
+		{
+			name: "unsupported",
+			listPools: func(_ string, _ []string, _ bool) ([]Pool, error) {
+				return []Pool{{Properties: map[string]string{}}}, nil
+			},
+			want: false,
+		},
+		{
+			name: "error",
+			listPools: func(_ string, _ []string, _ bool) ([]Pool, error) {
+				return nil, errTestCommand
+			},
+			want: false,
+		},
 	}
 
-	if !HasBookmarks(false) {
-		t.Fatal("expected HasBookmarks to return true")
-	}
-}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-//nolint:paralleltest
-func TestHasBookmarks_False(t *testing.T) {
-	resetFeatures()
-
-	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
-		return []Pool{
-			{Properties: map[string]string{}},
-		}, nil
-	}
-
-	if HasBookmarks(false) {
-		t.Fatal("expected HasBookmarks to return false")
-	}
-}
-
-//nolint:paralleltest
-func TestHasBookmarks_Error(t *testing.T) {
-	resetFeatures()
-
-	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
-		return nil, assertError("simulated failure")
-	}
-
-	if HasBookmarks(false) {
-		t.Fatal("expected HasBookmarks to return false on error")
+			detector := &featureDetector{}
+			if got := detector.hasBookmarks(testCase.listPools, false); got != testCase.want {
+				t.Errorf("hasBookmarks() = %v, want %v", got, testCase.want)
+			}
+		})
 	}
 }
 
-func resetFeatures() {
-	haveBookmarks = false
-	haveMultiSnap = false
-	listPoolsFn = ListPools
-	onceBookmarks = sync.Once{}
-	onceMultiSnap = sync.Once{}
-}
+func TestFeatureDetectorHasMultiSnap(t *testing.T) {
+	t.Parallel()
 
-type assertError string
+	for _, testCase := range []struct {
+		name string
+		pool Pool
+		want bool
+	}{
+		{name: "supported", pool: Pool{Properties: map[string]string{"feature@bookmarks": "enabled"}}, want: true},
+		{name: "unsupported", pool: Pool{Properties: map[string]string{}}, want: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-func (e assertError) Error() string {
-	return string(e)
-}
+			detector := &featureDetector{}
+			listPools := func(_ string, _ []string, _ bool) ([]Pool, error) {
+				return []Pool{testCase.pool}, nil
+			}
 
-//nolint:paralleltest
-func TestHasMultiSnap_True(t *testing.T) {
-	resetFeatures()
-
-	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
-		return []Pool{
-			{Properties: map[string]string{"feature@bookmarks": "enabled"}},
-		}, nil
-	}
-
-	if !HasMultiSnap(false) {
-		t.Fatal("expected HasMultiSnap to return true")
-	}
-}
-
-//nolint:paralleltest
-func TestHasMultiSnap_False(t *testing.T) {
-	resetFeatures()
-
-	listPoolsFn = func(_ string, _ []string, _ bool) ([]Pool, error) {
-		return []Pool{
-			{Properties: map[string]string{}},
-		}, nil
-	}
-
-	if HasMultiSnap(false) {
-		t.Fatal("expected HasMultiSnap to return false")
+			if got := detector.hasMultiSnap(listPools, false); got != testCase.want {
+				t.Errorf("hasMultiSnap() = %v, want %v", got, testCase.want)
+			}
+		})
 	}
 }

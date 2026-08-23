@@ -1,1470 +1,575 @@
 package zfs
 
 import (
-	"fmt"
-	"os"
+	"errors"
+	"io"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/go-test/deep"
-
-	"zfstools-go/internal/zfstoolstest"
 )
 
-//nolint:paralleltest
-func TestSnapshot_GetUsed(t *testing.T) {
-	type fields struct {
-		Name string
-		Used int64
-	}
+func TestSnapshotGetUsed(t *testing.T) {
+	t.Parallel()
 
-	type args struct {
-		debug bool
-	}
+	runner := &fakeRunner{output: []byte("4096\n")}
 
-	tests := []struct {
-		name        string
-		mockCmdFunc string
-		fields      fields
-		want        int64
-		args        args
-		stale       bool
+	for _, testCase := range []struct {
+		name  string
+		used  int64
+		stale bool
+		want  int64
+		calls int
 	}{
-		{
-			name:        "stale",
-			mockCmdFunc: "TestSnapshot_GetUsedStale",
-			fields: fields{
-				Name: "pool/fs@snap",
-				Used: 2048,
-			},
-			stale: true,
-			want:  4096,
-		},
-		{
-			name:        "notStale",
-			mockCmdFunc: "TestSnapshot_GetUsedStale", // not used
-			fields: fields{
-				Name: "pool/fs@snap",
-				Used: 1024,
-			},
-			stale: false,
-			want:  1024,
-		},
-	}
-
-	for _, testCase := range tests {
+		{name: "cached", used: 1024, want: 1024},
+		{name: "zero", want: 4096, calls: 1},
+		{name: "stale", used: 2048, stale: true, want: 4096, calls: 1},
+	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			staleSnapshotSize = testCase.stale
-			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			t.Parallel()
 
-			s := &Snapshot{
-				Name: testCase.fields.Name,
-				Used: testCase.fields.Used,
+			localState := &snapshotState{}
+			localState.stale.Store(testCase.stale)
+
+			localRunner := &fakeRunner{output: runner.output}
+			snapshot := Snapshot{Name: "pool/fs@snap", Used: testCase.used, runner: localRunner, state: localState}
+
+			if got := snapshot.GetUsed(false); got != testCase.want {
+				t.Errorf("GetUsed() = %d, want %d", got, testCase.want)
 			}
 
-			got := s.GetUsed(testCase.args.debug)
-			if got != testCase.want {
-				t.Errorf("GetUsed() = %v, want %v", got, testCase.want)
+			if len(localRunner.calls) != testCase.calls {
+				t.Errorf("Run calls = %d, want %d", len(localRunner.calls), testCase.calls)
+			}
+
+			if testCase.calls == 1 {
+				want := commandCall{name: "zfs", args: []string{"get", "-Hp", "-o", "value", "used", "pool/fs@snap"}}
+				if diff := deep.Equal(localRunner.calls[0], want); diff != nil {
+					t.Errorf("command differs: %v", diff)
+				}
 			}
 		})
 	}
 }
 
-//nolint:paralleltest
-func TestSnapshot_IsZero(t *testing.T) {
-	type fields struct {
-		Name string
-		Used int64
-	}
-
-	type args struct {
-		debug bool
-	}
+func TestSnapshotGetUsedErrors(t *testing.T) {
+	t.Parallel()
 
 	tests := []struct {
-		name        string
-		mockCmdFunc string
-		fields      fields
-		args        args
-		want        bool
+		err    error
+		name   string
+		output string
 	}{
-		{
-			name: "true",
-			fields: fields{
-				Name: "pool1/fs1@snap",
-				Used: 0,
-			},
-			mockCmdFunc: "TestSnapshot_IsZeroTrue",
-			args:        args{debug: false},
-			want:        true,
-		},
-		{
-			name: "false",
-			fields: fields{
-				Name: "pool1/fs2@snap",
-				Used: 123,
-			},
-			mockCmdFunc: "TestSnapshot_IsZeroTrue", // not used
-			args:        args{debug: false},
-			want:        false,
-		},
+		{name: "command error", err: errTestCommand},
+		{name: "invalid size", output: "invalid\n"},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			staleSnapshotSize = false
-			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			t.Parallel()
 
-			s := &Snapshot{
-				Name: testCase.fields.Name,
-				Used: testCase.fields.Used,
-			}
+			runner := &fakeRunner{output: []byte(testCase.output), err: testCase.err}
 
-			got := s.IsZero(testCase.args.debug)
-			if got != testCase.want {
-				t.Errorf("IsZero() = %v, want %v", got, testCase.want)
+			snapshot := Snapshot{Name: "pool/fs@snap", runner: runner, state: &snapshotState{}}
+			if got := snapshot.GetUsed(false); got != 0 {
+				t.Errorf("GetUsed() = %d, want 0", got)
 			}
 		})
 	}
 }
 
-//nolint:paralleltest
+func TestSnapshotIsZero(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{output: []byte("0\n")}
+
+	snapshot := Snapshot{Name: "pool/fs@snap", runner: runner, state: &snapshotState{}}
+	if !snapshot.IsZero(false) {
+		t.Fatal("IsZero() = false, want true")
+	}
+}
+
 func TestListSnapshots(t *testing.T) {
-	type args struct {
-		dataset   string
-		recursive bool
-		debug     bool
-	}
+	t.Parallel()
 
 	tests := []struct {
-		name        string
-		args        args
-		mockCmdFunc string
-		want        []Snapshot
-		wantErr     bool
+		name      string
+		dataset   string
+		output    string
+		wantArgs  []string
+		want      []Snapshot
+		recursive bool
 	}{
 		{
-			name:        "getAllNoneFound",
-			mockCmdFunc: "TestListSnapshots_getAllNoneFound",
-			args: args{
-				dataset:   "",
-				recursive: false,
-				debug:     false,
-			},
-			want:    []Snapshot{},
-			wantErr: false,
+			name:     "all",
+			output:   "tank/data@backup\t134217728\n",
+			wantArgs: []string{"list", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name"},
+			want:     []Snapshot{{Name: "tank/data@backup", Used: 134217728}},
 		},
 		{
-			name:        "getAllOneFound",
-			mockCmdFunc: "TestListSnapshots_getAllOneFound",
-			args: args{
-				dataset:   "",
-				recursive: false,
-				debug:     false,
-			},
-			want: []Snapshot{
-				{
-					Name: "tank/data@backup",
-					Used: 134217728,
-				},
-			},
-			wantErr: false,
+			name:      "named recursive",
+			dataset:   "tank",
+			recursive: true,
+			output:    "tank/data@backup1\t131072\n",
+			wantArgs:  []string{"list", "-r", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name", "tank"},
+			want:      []Snapshot{{Name: "tank/data@backup1", Used: 131072}},
 		},
 		{
-			name:        "getOneNoneFound",
-			mockCmdFunc: "TestListSnapshots_getOneNoneFound",
-			args: args{
-				dataset:   "tank",
-				recursive: false,
-				debug:     false,
-			},
-			want:    []Snapshot{},
-			wantErr: false,
+			name:     "named non-recursive",
+			dataset:  "tank",
+			wantArgs: []string{"list", "-d", "1", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name", "tank"},
+			want:     []Snapshot{},
 		},
 		{
-			name:        "getOneOneFound",
-			mockCmdFunc: "TestListSnapshots_getOneOneFound",
-			args: args{
-				dataset:   "tank",
-				recursive: false,
-				debug:     false,
-			},
-			want: []Snapshot{
-				{
-					Name: "tank/data@backup1",
-					Used: 131072,
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name:        "getAllRecursiveNoneFound",
-			mockCmdFunc: "TestListSnapshots_getAllRecursiveNoneFound",
-			args: args{
-				dataset:   "",
-				recursive: true,
-				debug:     false,
-			},
-			want:    []Snapshot{},
-			wantErr: false,
-		},
-		{
-			name:        "getAllRecursiveOneFound",
-			mockCmdFunc: "TestListSnapshots_getAllRecursiveOneFound",
-			args: args{
-				dataset:   "",
-				recursive: true,
-				debug:     false,
-			},
-			want: []Snapshot{
-				{
-					Name: "tank/data@backup",
-					Used: 134217728,
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name:        "getOneRecursiveNoneFound",
-			mockCmdFunc: "TestListSnapshots_getOneRecursiveNoneFound",
-			args: args{
-				dataset:   "tank",
-				recursive: true,
-				debug:     false,
-			},
-			want:    []Snapshot{},
-			wantErr: false,
-		},
-		{
-			name:        "getOneRecursiveOneFound",
-			mockCmdFunc: "TestListSnapshots_getOneRecursiveOneFound",
-			args: args{
-				dataset:   "tank",
-				recursive: true,
-				debug:     false,
-			},
-			want: []Snapshot{
-				{
-					Name: "tank/data@backup1",
-					Used: 131072,
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name:        "getAllOneFoundBogusSize",
-			mockCmdFunc: "TestListSnapshots_getAllOneFoundBogusSize",
-			args: args{
-				dataset:   "",
-				recursive: false,
-				debug:     false,
-			},
-			want:    []Snapshot{},
-			wantErr: false,
+			name:     "malformed rows",
+			output:   "invalid\ninvalid@size\tnot-a-number\n",
+			wantArgs: []string{"list", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name"},
+			want:     []Snapshot{},
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			t.Parallel()
 
-			got, err := ListSnapshots(testCase.args.dataset, testCase.args.recursive, testCase.args.debug)
+			runner := &fakeRunner{output: []byte(testCase.output)}
 
-			if (err != nil) != testCase.wantErr {
-				t.Errorf("ListSnapshots() error = %v, wantErr %v", err, testCase.wantErr)
-
-				return
+			got, err := NewClient(runner, io.Discard).ListSnapshots(testCase.dataset, testCase.recursive, false)
+			if err != nil {
+				t.Fatalf("ListSnapshots() error = %v", err)
 			}
 
-			diff := deep.Equal(got, testCase.want)
-			if diff != nil {
-				t.Errorf("compare failed: %#v", diff)
+			publicGot := make([]Snapshot, len(got))
+			for i := range got {
+				publicGot[i] = Snapshot{Name: got[i].Name, Used: got[i].Used}
+			}
+
+			if diff := deep.Equal(publicGot, testCase.want); diff != nil {
+				t.Errorf("snapshots differ: %v", diff)
+			}
+
+			wantCall := []commandCall{{name: "zfs", args: testCase.wantArgs}}
+			if diff := deep.Equal(runner.calls, wantCall); diff != nil {
+				t.Errorf("command differs: %v", diff)
 			}
 		})
 	}
 }
 
-//nolint:paralleltest
+func TestListSnapshotsCommandError(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{err: errTestCommand}
+	if _, err := NewClient(runner, io.Discard).ListSnapshots("", false, false); err == nil {
+		t.Fatal("ListSnapshots() error = nil, want command error")
+	}
+}
+
 func TestCreateSnapshot(t *testing.T) {
-	type args struct {
-		dbName    string
+	t.Parallel()
+
+	tests := []struct {
+		wantErr   error
+		name      string
+		database  string
+		wantCmd   string
 		targets   []string
 		recursive bool
 		dryRun    bool
-		verbose   bool
-		debug     bool
-	}
-
-	tests := []struct {
-		name        string
-		mockCmdFunc string
-		args        args
-		wantErr     bool
 	}{
+		{name: "no targets", wantErr: ErrEmptySnapshotName},
+		{name: "invalid target", targets: []string{"pool/fs"}, wantErr: ErrInvalidSnapshotName},
+		{name: "single", targets: []string{"pool/fs@snap"}, wantCmd: "zfs snapshot pool/fs@snap"},
 		{
-			name:        "none",
-			mockCmdFunc: "TestCreateSnapshot_none", // shouldn't be called
-			args: args{
-				targets:   nil,
-				recursive: false,
-				dbName:    "",
-				dryRun:    false,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: true,
+			name: "multiple recursive", targets: []string{"pool/fs1@snap", "pool/fs2@snap"}, recursive: true,
+			wantCmd: "zfs snapshot -r pool/fs1@snap pool/fs2@snap",
 		},
 		{
-			name:        "empty",
-			mockCmdFunc: "TestCreateSnapshot_none", // shouldn't be called
-			args: args{
-				targets:   []string{""},
-				recursive: false,
-				dbName:    "",
-				dryRun:    false,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: true,
+			name: "mysql", targets: []string{"pool/fs@snap"}, database: "mysql",
+			wantCmd: "mysql -e \" FLUSH LOGS; FLUSH TABLES WITH READ LOCK; " +
+				"SYSTEM zfs snapshot pool/fs@snap; UNLOCK TABLES;\"",
 		},
 		{
-			name:        "noAt",
-			mockCmdFunc: "TestCreateSnapshot_none", // shouldn't be called
-			args: args{
-				targets:   []string{"noAtSignWhichShouldBePresent"},
-				recursive: false,
-				dbName:    "",
-				dryRun:    false,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: true,
+			name: "postgresql", targets: []string{"pool/fs@snap"}, database: "postgresql",
+			wantCmd: "(psql -c \"SELECT PG_START_BACKUP('zfs-auto-snapshot');\" postgres ; " +
+				"zfs snapshot pool/fs@snap ) ; psql -c \"SELECT PG_STOP_BACKUP();\" postgres",
 		},
-		{
-			name:        "simple",
-			mockCmdFunc: "TestCreateSnapshot_single",
-			args: args{
-				targets:   []string{"pool/fs@snap"},
-				recursive: false,
-				dbName:    "",
-				dryRun:    false,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: false,
-		},
-		{
-			name:        "multiple",
-			mockCmdFunc: "TestCreateSnapshot_multiple",
-			args: args{
-				targets:   []string{"pool/fs1@snap", "pool1/fs2@snap"},
-				recursive: false,
-				dbName:    "",
-				dryRun:    false,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: false,
-		},
-		{
-			name:        "simpleRecursive",
-			mockCmdFunc: "TestCreateSnapshot_singleRecursive",
-			args: args{
-				targets:   []string{"pool/fs@snap"},
-				recursive: true,
-				dbName:    "",
-				dryRun:    false,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: false,
-		},
-		{
-			name:        "multipleRecursive",
-			mockCmdFunc: "TestCreateSnapshot_multipleRecursive",
-			args: args{
-				targets:   []string{"pool/fs1@snap", "pool1/fs2@snap"},
-				recursive: true,
-				dbName:    "",
-				dryRun:    false,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: false,
-		},
-		{
-			name:        "mySQLsingle",
-			mockCmdFunc: "TestCreateSnapshot_mySQLsingle",
-			args: args{
-				targets:   []string{"pool/fs@snap"},
-				recursive: false,
-				dbName:    "mysql",
-				dryRun:    false,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: false,
-		},
-		{
-			name:        "postgreSQLsingle",
-			mockCmdFunc: "TestCreateSnapshot_postgreSQLsingle",
-			args: args{
-				targets:   []string{"pool/fs@snap"},
-				recursive: false,
-				dbName:    "postgresql",
-				dryRun:    false,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: false,
-		},
-		{
-			name:        "dryRun",
-			mockCmdFunc: "TestCreateSnapshot_none", // shouldn't be called
-			args: args{
-				targets:   []string{"pool/fs@snap"},
-				recursive: false,
-				dbName:    "",
-				dryRun:    true,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: false,
-		},
-		{
-			name:        "forceError",
-			mockCmdFunc: "TestCreateSnapshot_forceError",
-			args: args{
-				targets:   []string{"pool/fs@snap"},
-				recursive: false,
-				dbName:    "",
-				dryRun:    false,
-				verbose:   false,
-				debug:     false,
-			},
-			wantErr: true,
-		},
+		{name: "dry run", targets: []string{"pool/fs@snap"}, dryRun: true},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			t.Parallel()
 
-			err := CreateSnapshot(testCase.args.targets, testCase.args.recursive, testCase.args.dbName,
-				testCase.args.dryRun, testCase.args.verbose, testCase.args.debug)
+			runner := &fakeRunner{}
+			client := NewClient(runner, io.Discard)
 
-			if (err != nil) != testCase.wantErr {
-				t.Errorf("CreateSnapshot() error = %v, wantErr %v", err, testCase.wantErr)
+			err := client.CreateSnapshot(testCase.targets, testCase.recursive, testCase.database,
+				testCase.dryRun, false, false)
+			if !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("createSnapshot() error = %v, want %v", err, testCase.wantErr)
+			}
 
-				return
+			wantCalls := []commandCall(nil)
+			if testCase.wantCmd != "" && !testCase.dryRun {
+				wantCalls = []commandCall{{name: "sh", args: []string{"-c", testCase.wantCmd}}}
+			}
+
+			if diff := deep.Equal(runner.calls, wantCalls); diff != nil {
+				t.Errorf("commands differ: %v", diff)
 			}
 		})
 	}
 }
 
-//nolint:paralleltest
+func TestCreateSnapshotCommandError(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{err: errTestCommand}
+	if err := NewClient(runner, io.Discard).CreateSnapshot(
+		[]string{"pool/fs@snap"}, false, "", false, false, false,
+	); err == nil {
+		t.Fatal("createSnapshot() error = nil, want command error")
+	}
+}
+
 func TestCreateManySnapshots(t *testing.T) {
-	type args struct {
-		snapshotName string
-		datasets     []Dataset
-		recursive    bool
-		dryRun       bool
-		verbose      bool
-		debug        bool
-		useThreads   bool
-	}
+	t.Parallel()
 
-	tests := []struct {
-		name        string
-		mockCmdFunc string
-		args        args
-		bookmarks   bool
-		wantErr     bool
-	}{
-		{
-			name:        "emptySnapName",
-			mockCmdFunc: "TestCreateManySnapshots_simple", // shouldn't be called
-			args: args{
-				snapshotName: "",
-				datasets: []Dataset{
-					{Name: "pool/fs1"},
-					{Name: "pool/fs2"},
-				},
-				recursive:  false,
-				dryRun:     false,
-				verbose:    false,
-				debug:      false,
-				useThreads: false,
-			},
-			wantErr: true,
-		},
-		{
-			name:        "nilDatasets",
-			mockCmdFunc: "TestCreateManySnapshots_simple", // shouldn't be called
-			args: args{
-				snapshotName: "auto-2025-01-01",
-				datasets:     nil,
-				recursive:    false,
-				dryRun:       false,
-				verbose:      false,
-				debug:        false,
-				useThreads:   false,
-			},
-			wantErr: true,
-		},
-		{
-			name:        "datasetNameEmpty",
-			mockCmdFunc: "TestCreateManySnapshots_simple", // shouldn't be called
-			args: args{
-				snapshotName: "auto-2025-01-01",
-				datasets: []Dataset{
-					{Name: "pool/fs1"},
-					{Name: ""},
-				},
-				recursive:  false,
-				dryRun:     false,
-				verbose:    false,
-				debug:      false,
-				useThreads: false,
-			},
-			wantErr: true,
-		},
-		{
-			name:        "datasetNameContainsAt",
-			mockCmdFunc: "TestCreateManySnapshots_simple", // shouldn't be called
-			args: args{
-				snapshotName: "auto-2025-01-01",
-				datasets: []Dataset{
-					{Name: "pool/fs1"},
-					{Name: "pool/fs2@snapname"},
-				},
-				recursive:  false,
-				dryRun:     false,
-				verbose:    false,
-				debug:      false,
-				useThreads: false,
-			},
-			wantErr: true,
-		},
-		{
-			name:        "simpleWithBookmarks",
-			mockCmdFunc: "TestCreateManySnapshots_simpleWithBookmarks",
-			bookmarks:   true,
-			args: args{
-				snapshotName: "auto-2025-01-01",
-				datasets: []Dataset{
-					{Name: "pool/fs1"},
-					{Name: "pool/fs2"},
-				},
-				recursive:  false,
-				dryRun:     false,
-				verbose:    false,
-				debug:      false,
-				useThreads: false,
-			},
-			wantErr: false,
-		},
-		{
-			name:        "simpleWithoutBookmarks",
-			mockCmdFunc: "TestCreateManySnapshots_simpleWithoutBookmarks",
-			bookmarks:   false,
-			args: args{
-				snapshotName: "auto-2025-01-01",
-				datasets: []Dataset{
-					{Name: "pool/fs1"},
-					{Name: "pool/fs2"},
-				},
-				recursive:  false,
-				dryRun:     false,
-				verbose:    false,
-				debug:      false,
-				useThreads: false,
-			},
-			wantErr: false,
-		},
-		{
-			name:        "oneSnapshotOfManyErroredWithBookmarks",
-			mockCmdFunc: "TestCreateManySnapshots_oneSnapshotOfManyErroredWithBookmarks",
-			bookmarks:   true,
-			args: args{
-				snapshotName: "auto-2025-01-01",
-				datasets: []Dataset{
-					{Name: "pool/fs1"},
-					{Name: "pool/fs2"},
-				},
-				recursive:  false,
-				dryRun:     false,
-				verbose:    false,
-				debug:      false,
-				useThreads: false,
-			},
-			wantErr: true,
-		},
-		{
-			name:        "oneSnapshotOfManyErroredWithoutBookmarks",
-			mockCmdFunc: "TestCreateManySnapshots_oneSnapshotOfManyErroredWithoutBookmarks",
-			bookmarks:   false,
-			args: args{
-				snapshotName: "auto-2025-01-01",
-				datasets: []Dataset{
-					{Name: "pool/fs1"},
-					{Name: "pool/fs2"},
-				},
-				recursive:  false,
-				dryRun:     false,
-				verbose:    false,
-				debug:      false,
-				useThreads: false,
-			},
-			wantErr: true,
-		},
-	}
+	t.Run("multi-snapshot", func(t *testing.T) {
+		t.Parallel()
 
-	for _, testCase := range tests {
-		RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
-		// ensure we control for bookmark feature support detection
-		runZpoolFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+		runner := &fakeRunner{output: []byte("123456\n")}
+		client := NewClient(runner, io.Discard)
+		client.hasMultiSnap = func(bool) bool { return true }
 
-		t.Run(testCase.name, func(t *testing.T) {
-			// bookmark/multisnap support may have been detected already (on or off), but make sure we force it to
-			// what we need for this test case
-			if testCase.bookmarks {
-				haveBookmarks = true
-				haveMultiSnap = true
-			} else {
-				haveBookmarks = false
-				haveMultiSnap = false
+		err := client.CreateManySnapshots("auto",
+			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
+		if err != nil {
+			t.Fatalf("createManySnapshots() error = %v", err)
+		}
+
+		want := []commandCall{
+			{name: "getconf", args: []string{"ARG_MAX"}},
+			{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@auto pool/fs2@auto"}},
+		}
+
+		if diff := deep.Equal(runner.calls, want); diff != nil {
+			t.Errorf("commands differ: %v", diff)
+		}
+	})
+
+	t.Run("single snapshots", func(t *testing.T) {
+		t.Parallel()
+
+		runner := &fakeRunner{}
+		client := NewClient(runner, io.Discard)
+		client.hasMultiSnap = func(bool) bool { return false }
+
+		err := client.CreateManySnapshots("auto",
+			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
+		if err != nil {
+			t.Fatalf("createManySnapshots() error = %v", err)
+		}
+
+		want := []commandCall{
+			{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@auto"}},
+			{name: "sh", args: []string{"-c", "zfs snapshot pool/fs2@auto"}},
+		}
+		if diff := deep.Equal(runner.calls, want); diff != nil {
+			t.Errorf("commands differ: %v", diff)
+		}
+	})
+
+	t.Run("one command fails", func(t *testing.T) {
+		t.Parallel()
+
+		runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
+			if args[1] == "zfs snapshot pool/fs2@auto" {
+				return nil, errTestCommand
 			}
 
-			err := CreateManySnapshots(testCase.args.snapshotName, testCase.args.datasets,
-				testCase.args.recursive, testCase.args.dryRun, testCase.args.verbose,
-				testCase.args.debug, testCase.args.useThreads)
+			return nil, nil
+		}}
+		client := NewClient(runner, io.Discard)
+		client.hasMultiSnap = func(bool) bool { return false }
 
+		err := client.CreateManySnapshots("auto",
+			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
+		if !errors.Is(err, ErrOneSnapshotOfManyErrored) {
+			t.Fatalf("createManySnapshots() error = %v, want %v", err, ErrOneSnapshotOfManyErrored)
+		}
+	})
+}
+
+func TestCreateManySnapshotsDatabaseDataset(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{}
+	client := NewClient(runner, io.Discard)
+	client.hasMultiSnap = func(bool) bool {
+		t.Fatal("database-only request checked multi-snapshot support")
+
+		return false
+	}
+
+	err := client.CreateManySnapshots(
+		"auto", []Dataset{{Name: "pool/mysql", DB: "mysql"}}, false, false, false, false, false,
+	)
+	if err != nil {
+		t.Fatalf("CreateManySnapshots() error = %v", err)
+	}
+
+	want := []commandCall{{name: "sh", args: []string{
+		"-c", "mysql -e \" FLUSH LOGS; FLUSH TABLES WITH READ LOCK; " +
+			"SYSTEM zfs snapshot pool/mysql@auto; UNLOCK TABLES;\"",
+	}}}
+	if diff := deep.Equal(runner.calls, want); diff != nil {
+		t.Errorf("commands differ: %v", diff)
+	}
+}
+
+func TestCreateManySnapshotsMixedDatasetsContinueAfterError(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
+		if strings.HasPrefix(args[1], "mysql -e") {
+			return nil, errTestCommand
+		}
+
+		return nil, nil
+	}}
+	client := NewClient(runner, io.Discard)
+	client.hasMultiSnap = func(bool) bool { return false }
+
+	err := client.CreateManySnapshots("auto", []Dataset{
+		{Name: "pool/mysql", DB: "mysql"},
+		{Name: "pool/files"},
+	}, false, false, false, false, false)
+	if !errors.Is(err, ErrOneSnapshotOfManyErrored) {
+		t.Fatalf("CreateManySnapshots() error = %v, want %v", err, ErrOneSnapshotOfManyErrored)
+	}
+
+	if len(runner.calls) != 2 {
+		t.Fatalf("command count = %d, want 2", len(runner.calls))
+	}
+
+	if got := runner.calls[1]; deep.Equal(got, commandCall{
+		name: "sh", args: []string{"-c", "zfs snapshot pool/files@auto"},
+	}) != nil {
+		t.Errorf("regular dataset command = %#v", got)
+	}
+}
+
+func TestCreateManySnapshotsParallelFallback(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name    string
+		fail    string
+		wantErr bool
+	}{
+		{name: "success"},
+		{name: "failure", fail: "zfs snapshot pool/fs2@auto", wantErr: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
+				if args[1] == testCase.fail {
+					return nil, errTestCommand
+				}
+
+				return nil, nil
+			}}
+			client := NewClient(runner, io.Discard)
+			client.hasMultiSnap = func(bool) bool { return false }
+
+			err := client.CreateManySnapshots("auto", []Dataset{
+				{Name: "pool/fs1"}, {Name: "pool/fs2"}, {Name: "pool/fs3"},
+			}, false, false, false, false, true)
 			if (err != nil) != testCase.wantErr {
-				t.Errorf("CreateManySnapshots() error = %v, wantErr %v", err, testCase.wantErr)
+				t.Fatalf("CreateManySnapshots() error = %v, wantErr %v", err, testCase.wantErr)
+			}
 
-				return
+			commands := make([]string, 0, len(runner.calls))
+			for _, call := range runner.calls {
+				if call.name != "sh" || len(call.args) != 2 || call.args[0] != "-c" {
+					t.Fatalf("unexpected command: %#v", call)
+				}
+
+				commands = append(commands, call.args[1])
+			}
+
+			slices.Sort(commands)
+
+			want := []string{
+				"zfs snapshot pool/fs1@auto",
+				"zfs snapshot pool/fs2@auto",
+				"zfs snapshot pool/fs3@auto",
+			}
+			if diff := deep.Equal(commands, want); diff != nil {
+				t.Errorf("commands differ: %v", diff)
 			}
 		})
 	}
 }
 
-//nolint:paralleltest
-func Test_getArgMax(t *testing.T) {
+func TestCreateManySnapshotsMinimumChunkSize(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{output: []byte("1\n")}
+	client := NewClient(runner, io.Discard)
+	client.hasMultiSnap = func(bool) bool { return true }
+
+	err := client.CreateManySnapshots("auto", []Dataset{
+		{Name: "pool/fs1"}, {Name: "pool/fs2"},
+	}, false, false, false, false, false)
+	if err != nil {
+		t.Fatalf("CreateManySnapshots() error = %v", err)
+	}
+
+	want := []commandCall{
+		{name: "getconf", args: []string{"ARG_MAX"}},
+		{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@auto"}},
+		{name: "sh", args: []string{"-c", "zfs snapshot pool/fs2@auto"}},
+	}
+	if diff := deep.Equal(runner.calls, want); diff != nil {
+		t.Errorf("commands differ: %v", diff)
+	}
+}
+
+func TestCreateManySnapshotsValidation(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		name        string
-		mockCmdFunc string
-		want        int
+		want     error
+		name     string
+		snapshot string
+		datasets []Dataset
 	}{
+		{name: "empty snapshot", datasets: []Dataset{{Name: "pool/fs"}}, want: ErrEmptySnapshotName},
+		{name: "no datasets", snapshot: "auto", want: ErrNoDatasets},
+		{name: "empty dataset", snapshot: "auto", datasets: []Dataset{{Name: ""}}, want: ErrInvalidSnapshotName},
 		{
-			name:        "working",
-			mockCmdFunc: "Test_getArgMax_working",
-			want:        123456,
-		},
-		{
-			name:        "error",
-			mockCmdFunc: "Test_getArgMax_error",
-			want:        4096,
-		},
-		{
-			name:        "working",
-			mockCmdFunc: "Test_getArgMax_bogus",
-			want:        4096,
+			name: "snapshot in dataset", snapshot: "auto",
+			datasets: []Dataset{{Name: "pool/fs@old"}}, want: ErrInvalidSnapshotName,
 		},
 	}
 
 	for _, testCase := range tests {
-		RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
-
 		t.Run(testCase.name, func(t *testing.T) {
-			got := getArgMax()
-			if got != testCase.want {
-				t.Errorf("getArgMax() = %v, want %v", got, testCase.want)
+			t.Parallel()
+
+			client := NewClient(&fakeRunner{}, io.Discard)
+			client.hasMultiSnap = func(bool) bool { return false }
+
+			err := client.CreateManySnapshots(testCase.snapshot,
+				testCase.datasets, false, false, false, false, false)
+			if !errors.Is(err, testCase.want) {
+				t.Errorf("createManySnapshots() error = %v, want %v", err, testCase.want)
 			}
 		})
 	}
 }
 
-//nolint:paralleltest
-func TestDestroySnapshot(t *testing.T) {
-	type args struct {
+func TestGetArgMax(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		err    error
 		name   string
-		dryRun bool
-		debug  bool
-	}
-
-	tests := []struct {
-		name        string
-		mockCmdFunc string
-		args        args
-		wantErr     bool
+		output string
+		want   int
 	}{
-		{
-			name:        "working",
-			mockCmdFunc: "TestDestroySnapshot_working",
-			args: args{
-				name:   "pool1/fs1@snapshot1",
-				dryRun: false,
-				debug:  false,
-			},
-			wantErr: false,
-		},
-		{
-			name:        "error",
-			mockCmdFunc: "TestDestroySnapshot_error",
-			args: args{
-				name:   "pool1/fs1@snapshot1",
-				dryRun: false,
-				debug:  false,
-			},
-			wantErr: true,
-		},
-		{
-			name:        "dryRun",
-			mockCmdFunc: "TestDestroySnapshot_dryRun", // not called
-			args: args{
-				name:   "pool1/fs1@snapshot1",
-				dryRun: true,
-				debug:  false,
-			},
-			wantErr: false,
-		},
+		{name: "value", output: "123456\n", want: 123456},
+		{name: "command error", err: errTestCommand, want: 4096},
+		{name: "invalid value", output: "bogus\n", want: 4096},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			staleSnapshotSize = false
-			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			t.Parallel()
 
-			err := DestroySnapshot(testCase.args.name, testCase.args.dryRun, testCase.args.debug)
-			if (err != nil) != testCase.wantErr {
-				t.Errorf("DestroySnapshot() error = %v, wantErr %v", err, testCase.wantErr)
+			runner := &fakeRunner{output: []byte(testCase.output), err: testCase.err}
+			if got := NewClient(runner, io.Discard).getArgMax(); got != testCase.want {
+				t.Errorf("getArgMax() = %d, want %d", got, testCase.want)
 			}
 
-			if staleSnapshotSize != true {
-				t.Errorf("staleSnapshotSize not updated")
+			want := []commandCall{{name: "getconf", args: []string{"ARG_MAX"}}}
+			if diff := deep.Equal(runner.calls, want); diff != nil {
+				t.Errorf("command differs: %v", diff)
 			}
 		})
 	}
 }
 
-// test helpers from here down
+func TestDestroySnapshotInvalidatesClientSnapshots(t *testing.T) {
+	t.Parallel()
 
-//nolint:paralleltest
-func TestSnapshot_GetUsedStale(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
+	var listDone bool
+
+	runner := &fakeRunner{
+		runFunc: func(string, ...string) ([]byte, error) {
+			if !listDone {
+				listDone = true
+
+				return []byte("pool/fs@snap\t1024\n"), nil
+			}
+
+			return []byte("4096\n"), nil
+		},
+	}
+	client := NewClient(runner, io.Discard)
+
+	snapshots, err := client.ListSnapshots("", false, false)
+	if err != nil {
+		t.Fatalf("ListSnapshots() error = %v", err)
 	}
 
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"get",
-		"-Hp",
-		"-o",
-		"value",
-		"used",
-		"pool/fs@snap",
+	if err := client.DestroySnapshot("pool/fs@old", false, false); err != nil {
+		t.Fatalf("DestroySnapshot() error = %v", err)
 	}
 
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
+	if got := snapshots[0].GetUsed(false); got != 4096 {
+		t.Errorf("GetUsed() after destroy = %d, want 4096", got)
 	}
 
-	fmt.Printf("4096\n") //nolint:forbidigo
-
-	os.Exit(0)
+	wantRun := []commandCall{{name: "zfs", args: []string{"destroy", "-d", "pool/fs@old"}}}
+	if diff := deep.Equal(runner.calls[1:2], wantRun); diff != nil {
+		t.Errorf("destroy command differs: %v", diff)
+	}
 }
 
-//nolint:paralleltest
-func TestSnapshot_IsZeroTrue(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"get",
-		"-Hp",
-		"-o",
-		"value",
-		"used",
-		"pool1/fs1@snap",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("0\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListSnapshots_getAllNoneFound(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-p",
-		"-t",
-		"snapshot",
-		"-o",
-		"name,used",
-		"-S",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListSnapshots_getAllOneFound(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-p",
-		"-t",
-		"snapshot",
-		"-o",
-		"name,used",
-		"-S",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("tank/data@backup\t134217728\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListSnapshots_getOneNoneFound(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-d",
-		"1",
-		"-H",
-		"-p",
-		"-t",
-		"snapshot",
-		"-o",
-		"name,used",
-		"-S",
-		"name",
-		"tank",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListSnapshots_getOneOneFound(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-d",
-		"1",
-		"-H",
-		"-p",
-		"-t",
-		"snapshot",
-		"-o",
-		"name,used",
-		"-S",
-		"name",
-		"tank",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("tank/data@backup1\t131072\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListSnapshots_getAllRecursiveNoneFound(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-r",
-		"-H",
-		"-p",
-		"-t",
-		"snapshot",
-		"-o",
-		"name,used",
-		"-S",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListSnapshots_getAllRecursiveOneFound(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-r",
-		"-H",
-		"-p",
-		"-t",
-		"snapshot",
-		"-o",
-		"name,used",
-		"-S",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("tank/data@backup\t134217728\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListSnapshots_getOneRecursiveNoneFound(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-r",
-		"-H",
-		"-p",
-		"-t",
-		"snapshot",
-		"-o",
-		"name,used",
-		"-S",
-		"name",
-		"tank",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListSnapshots_getOneRecursiveOneFound(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-r",
-		"-H",
-		"-p",
-		"-t",
-		"snapshot",
-		"-o",
-		"name,used",
-		"-S",
-		"name",
-		"tank",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("tank/data@backup1\t131072\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListSnapshots_getAllOneFoundBogusSize(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-p",
-		"-t",
-		"snapshot",
-		"-o",
-		"name,used",
-		"-S",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("tank/data@backup\tonetwothree\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestCreateSnapshot_none(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	os.Exit(1)
-}
-
-//nolint:paralleltest
-func TestCreateSnapshot_single(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"zfs snapshot pool/fs@snap",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestCreateSnapshot_multiple(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"zfs snapshot pool/fs1@snap pool1/fs2@snap",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestCreateSnapshot_singleRecursive(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"zfs snapshot -r pool/fs@snap",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestCreateSnapshot_multipleRecursive(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"zfs snapshot -r pool/fs1@snap pool1/fs2@snap",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestCreateSnapshot_mySQLsingle(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"mysql -e \" FLUSH LOGS; FLUSH TABLES WITH READ LOCK; SYSTEM zfs snapshot pool/fs@snap; UNLOCK TABLES;\"",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestCreateSnapshot_postgreSQLsingle(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"(psql -c \"SELECT PG_START_BACKUP('zfs-auto-snapshot');\" postgres ; zfs snapshot pool/fs@snap ) ; psql -c \"SELECT PG_STOP_BACKUP();\" postgres", //nolint:lll
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestCreateSnapshot_forceError(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	os.Exit(1)
-}
-
-//nolint:paralleltest
-func TestCreateManySnapshots_simpleWithBookmarks(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	// simulate the zpool call used to detect bookmarks feature
-	for _, v := range cmdWithArgs {
-		if v == "feature@bookmarks" {
-			fmt.Printf("tank\tfeature@bookmarks\tenabled\n") //nolint:forbidigo
-			os.Exit(0)
+func TestDestroySnapshotErrorAndDryRun(t *testing.T) {
+	t.Parallel()
+
+	t.Run("error", func(t *testing.T) {
+		t.Parallel()
+
+		runner := &fakeRunner{err: errTestCommand}
+		if err := NewClient(runner, io.Discard).DestroySnapshot("pool/fs@snap", false, false); err == nil {
+			t.Fatal("DestroySnapshot() error = nil, want command error")
 		}
-	}
+	})
 
-	expectedCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"zfs snapshot pool/fs1@auto-2025-01-01 pool/fs2@auto-2025-01-01",
-	}
+	t.Run("dry run", func(t *testing.T) {
+		t.Parallel()
 
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
+		runner := &fakeRunner{}
 
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestCreateManySnapshots_simpleWithoutBookmarks(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	// simulate the zpool call used to detect bookmarks feature - this time without bookmarks supported
-	for _, v := range cmdWithArgs {
-		if v == "feature@bookmarks" {
-			os.Exit(0)
+		client := NewClient(runner, io.Discard)
+		if err := client.DestroySnapshot("pool/fs@snap", true, false); err != nil {
+			t.Fatalf("DestroySnapshot() error = %v", err)
 		}
-	}
 
-	expectedFirstCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"zfs snapshot pool/fs1@auto-2025-01-01",
-	}
-
-	expectedSecondCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"zfs snapshot pool/fs2@auto-2025-01-01",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedFirstCmdWithArgs) == nil ||
-		deep.Equal(cmdWithArgs, expectedSecondCmdWithArgs) == nil {
-		os.Exit(0)
-	}
-
-	os.Exit(1)
-}
-
-//nolint:paralleltest
-func TestCreateManySnapshots_oneSnapshotOfManyErroredWithBookmarks(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	// simulate the zpool call used to detect bookmarks feature
-	for _, v := range cmdWithArgs {
-		if v == "feature@bookmarks" {
-			fmt.Printf("tank\tfeature@bookmarks\tenabled\n") //nolint:forbidigo
-			os.Exit(0)
+		if len(runner.calls) != 0 {
+			t.Errorf("Run calls = %d, want 0", len(runner.calls))
 		}
-	}
 
-	expectedCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"zfs snapshot pool/fs1@auto-2025-01-01 pool/fs2@auto-2025-01-01",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(0)
-	}
-
-	os.Exit(1)
-}
-
-//nolint:paralleltest
-func TestCreateManySnapshots_oneSnapshotOfManyErroredWithoutBookmarks(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	// simulate the zpool call used to detect bookmarks feature - this time without bookmarks supported
-	for _, v := range cmdWithArgs {
-		if v == "feature@bookmarks" {
-			os.Exit(0)
+		if !client.snapshotState.stale.Load() {
+			t.Error("snapshot state was not invalidated")
 		}
-	}
-
-	expectedFirstCmdWithArgs := []string{
-		"sh",
-		"-c",
-		"zfs snapshot pool/fs1@auto-2025-01-01",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedFirstCmdWithArgs) == nil {
-		os.Exit(0)
-	}
-
-	// second command will be `sh -c zfs snapshot pool/fs2@auto-2025-01-01`, which we let fail
-
-	os.Exit(1)
-}
-
-//nolint:paralleltest
-func Test_getArgMax_working(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"getconf",
-		"ARG_MAX",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("123456\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func Test_getArgMax_error(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"getconf",
-		"ARG_MAX",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(0)
-	}
-
-	os.Exit(1)
-}
-
-//nolint:paralleltest
-func Test_getArgMax_bogus(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"getconf",
-		"ARG_MAX",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("bogus\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestDestroySnapshot_working(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"destroy",
-		"-d",
-		"pool1/fs1@snapshot1",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestDestroySnapshot_error(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"destroy",
-		"-d",
-		"pool1/fs1@snapshot1",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(0)
-	}
-
-	os.Exit(1)
-}
-
-//nolint:paralleltest
-func TestDestroySnapshot_dryRun(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	os.Exit(1)
+	})
 }

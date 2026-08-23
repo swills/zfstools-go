@@ -1,48 +1,47 @@
 package zfs
 
-import (
-	"sync"
-)
+import "sync"
 
-var listPoolsFn = ListPools
-
-var (
+type featureDetector struct {
 	onceBookmarks sync.Once
 	onceMultiSnap sync.Once
-
 	haveBookmarks bool
 	haveMultiSnap bool
-)
+}
 
-// HasBookmarks checks for support of 'feature@bookmarks'
-func HasBookmarks(debug bool) bool {
-	onceBookmarks.Do(func() {
-		pools, err := listPoolsFn("", []string{"feature@bookmarks"}, debug)
+func (detector *featureDetector) hasBookmarks(
+	listPools func(string, []string, bool) ([]Pool, error),
+	debug bool,
+) bool {
+	detector.onceBookmarks.Do(func() {
+		pools, err := listPools("", []string{"feature@bookmarks"}, debug)
 		if err != nil {
-			haveBookmarks = false
+			detector.haveBookmarks = false
 
 			return
 		}
 
 		for _, pool := range pools {
 			if _, ok := pool.Properties["feature@bookmarks"]; ok {
-				haveBookmarks = true
+				detector.haveBookmarks = true
 
 				return
 			}
 		}
 
-		haveBookmarks = false
+		detector.haveBookmarks = false
 	})
 
-	return haveBookmarks
+	return detector.haveBookmarks
 }
 
-// HasMultiSnap piggybacks on HasBookmarks
-func HasMultiSnap(debug bool) bool {
-	onceMultiSnap.Do(func() {
-		haveMultiSnap = HasBookmarks(debug)
+func (detector *featureDetector) hasMultiSnap(
+	listPools func(string, []string, bool) ([]Pool, error),
+	debug bool,
+) bool {
+	detector.onceMultiSnap.Do(func() {
+		detector.haveMultiSnap = detector.hasBookmarks(listPools, debug)
 	})
 
-	return haveMultiSnap
+	return detector.haveMultiSnap
 }

@@ -1,8 +1,10 @@
 package zfstools
 
 import (
-	"fmt"
-	"os"
+	"bytes"
+	"io"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,54 +12,68 @@ import (
 
 	"zfstools-go/internal/config"
 	"zfstools-go/internal/zfs"
-	"zfstools-go/internal/zfstoolstest"
 )
 
-var createdSnapshots []string
-
-var destroyedSnapshots []string
-
-func init() {
-	createdSnapshots = nil
-	destroyedSnapshots = nil
-	createManySnapshotsFn = func(name string, datasets []zfs.Dataset, _, _, _, _, _ bool) error {
-		for _, ds := range datasets {
-			createdSnapshots = append(createdSnapshots, ds.Name+"@"+name)
-		}
-
-		return nil
-	}
-	destroySnapshotFn = func(name string, _, _ bool) error {
-		destroyedSnapshots = append(destroyedSnapshots, name)
-
-		return nil
-	}
+type fakeRunner struct {
+	runFunc func(string, ...string) ([]byte, error)
+	output  []byte
+	name    string
+	args    []string
+	calls   []commandCall
+	mu      sync.Mutex
 }
 
-func testConfig(interval string) config.Config {
-	return config.Config{
-		Interval: interval,
+type commandCall struct {
+	name string
+	args []string
+}
+
+func (runner *fakeRunner) Run(name string, args ...string) ([]byte, error) {
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	runner.name = name
+
+	runner.args = append([]string(nil), args...)
+	runner.calls = append(runner.calls, commandCall{name: name, args: append([]string(nil), args...)})
+
+	if runner.runFunc != nil {
+		return runner.runFunc(name, args...)
 	}
+
+	return runner.output, nil
 }
 
 func TestDoNewSnapshots(t *testing.T) {
 	t.Parallel()
 
-	createdSnapshots = nil
-	cfg := testConfig("frequent")
+	runner := &fakeRunner{}
+	tools := New(zfs.NewClient(runner, io.Discard), io.Discard)
+	cfg := config.Config{
+		Interval:  "frequent",
+		Timestamp: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
+	}
 	datasets := map[string][]zfs.Dataset{
 		"single":    {{Name: "pool/fs1"}},
 		"recursive": {{Name: "pool/fs2"}},
 	}
-	DoNewSnapshots(cfg, datasets)
+	tools.DoNewSnapshots(cfg, datasets)
 
-	if len(createdSnapshots) != 2 {
-		t.Errorf("expected 2 snapshots, got %d", len(createdSnapshots))
+	want := []commandCall{
+		{name: "zpool", args: []string{
+			"get", "-H", "-p", "-o", "name,property,value", "feature@bookmarks",
+		}},
+		{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@zfs-auto-snap_frequent-2025-01-02-03h04"}},
+		{name: "sh", args: []string{"-c", "zfs snapshot -r pool/fs2@zfs-auto-snap_frequent-2025-01-02-03h04"}},
+	}
+	if diff := deep.Equal(runner.calls, want); diff != nil {
+		t.Errorf("commands differ: %v", diff)
 	}
 }
 
-//nolint:paralleltest
 func TestGroupSnapshotsIntoDatasets(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		snaps    []zfs.Snapshot
 		datasets []zfs.Dataset
@@ -172,6 +188,8 @@ func TestGroupSnapshotsIntoDatasets(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := GroupSnapshotsIntoDatasets(testCase.args.snaps, testCase.args.datasets)
 
 			diff := deep.Equal(got, testCase.want)
@@ -182,8 +200,9 @@ func TestGroupSnapshotsIntoDatasets(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest,maintidx
-func TestFindEligibleDatasets(t *testing.T) {
+func TestFindEligibleDatasetsMountEligibility(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		pool string
 		cfg  config.Config
@@ -273,6 +292,31 @@ func TestFindEligibleDatasets(t *testing.T) {
 				},
 			},
 		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			assertFindEligibleDatasets(t, testCase.mockCmdFunc, testCase.args.cfg, testCase.args.pool, testCase.want)
+		})
+	}
+}
+
+func TestFindEligibleDatasetsPropertyEligibility(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		pool string
+		cfg  config.Config
+	}
+
+	tests := []struct {
+		want        map[string][]zfs.Dataset
+		name        string
+		mockCmdFunc string
+		args        args
+	}{
 		{
 			name:        "manyFS",
 			mockCmdFunc: "TestFindEligibleDatasets_alreadyFound",
@@ -399,6 +443,31 @@ func TestFindEligibleDatasets(t *testing.T) {
 				"excluded": nil,
 			},
 		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			assertFindEligibleDatasets(t, testCase.mockCmdFunc, testCase.args.cfg, testCase.args.pool, testCase.want)
+		})
+	}
+}
+
+func TestFindEligibleDatasetsPoolHierarchy(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		pool string
+		cfg  config.Config
+	}
+
+	tests := []struct {
+		want        map[string][]zfs.Dataset
+		name        string
+		mockCmdFunc string
+		args        args
+	}{
 		{
 			name:        "manyDatasets",
 			mockCmdFunc: "TestFindEligibleDatasets_manyDatasets",
@@ -619,20 +688,47 @@ func TestFindEligibleDatasets(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			zfs.RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			t.Parallel()
 
-			got := FindEligibleDatasets(testCase.args.cfg, testCase.args.pool)
-
-			diff := deep.Equal(got, testCase.want)
-			if diff != nil {
-				t.Errorf("compare failed: %#v", diff)
-			}
+			assertFindEligibleDatasets(t, testCase.mockCmdFunc, testCase.args.cfg, testCase.args.pool, testCase.want)
 		})
 	}
 }
 
-//nolint:paralleltest,maintidx
-func Test_findRecursiveDatasets(t *testing.T) {
+func assertFindEligibleDatasets(
+	t *testing.T,
+	outputName string,
+	cfg config.Config,
+	pool string,
+	want map[string][]zfs.Dataset,
+) {
+	t.Helper()
+
+	runner := &fakeRunner{output: findEligibleDatasetsOutput(outputName)}
+	client := zfs.NewClient(runner, io.Discard)
+	got := New(client, io.Discard).FindEligibleDatasets(cfg, pool)
+
+	diff := deep.Equal(got, want)
+	if diff != nil {
+		t.Errorf("compare failed: %#v", diff)
+	}
+
+	wantArgs := []string{
+		"list", "-H", "-t", "filesystem,volume", "-o",
+		"name,type,com.sun:auto-snapshot:frequent,com.sun:auto-snapshot,mounted", "-s", "name",
+	}
+	if pool != "" {
+		wantArgs = append(wantArgs, "-r", pool)
+	}
+
+	if runner.name != "zfs" || deep.Equal(runner.args, wantArgs) != nil {
+		t.Errorf("command = %s %v, want zfs %v", runner.name, runner.args, wantArgs)
+	}
+}
+
+func Test_findRecursiveDatasetsIncludedRoots(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		datasets map[string][]zfs.Dataset
 	}
@@ -822,6 +918,29 @@ func Test_findRecursiveDatasets(t *testing.T) {
 				},
 			},
 		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			assertRecursiveDatasets(t, testCase.args.datasets, testCase.want)
+		})
+	}
+}
+
+func Test_findRecursiveDatasetsExclusionBoundaries(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		datasets map[string][]zfs.Dataset
+	}
+
+	tests := []struct {
+		args args
+		want map[string][]zfs.Dataset
+		name string
+	}{
 		{
 			name: "considers first level excluded",
 			args: args{
@@ -1004,6 +1123,29 @@ func Test_findRecursiveDatasets(t *testing.T) {
 				},
 			},
 		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			assertRecursiveDatasets(t, testCase.args.datasets, testCase.want)
+		})
+	}
+}
+
+func Test_findRecursiveDatasetsDatabasePropagation(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		datasets map[string][]zfs.Dataset
+	}
+
+	tests := []struct {
+		args args
+		want map[string][]zfs.Dataset
+		name string
+	}{
 		{
 			name: "considers child with mysql db in parent recursive",
 			args: args{
@@ -1230,13 +1372,21 @@ func Test_findRecursiveDatasets(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			got := findRecursiveDatasets(testCase.args.datasets)
+			t.Parallel()
 
-			diff := deep.Equal(got, testCase.want)
-			if diff != nil {
-				t.Errorf("compare failed: %#v", diff)
-			}
+			assertRecursiveDatasets(t, testCase.args.datasets, testCase.want)
 		})
+	}
+}
+
+func assertRecursiveDatasets(t *testing.T, datasets, want map[string][]zfs.Dataset) {
+	t.Helper()
+
+	got := findRecursiveDatasets(datasets)
+
+	diff := deep.Equal(got, want)
+	if diff != nil {
+		t.Errorf("compare failed: %#v", diff)
 	}
 }
 
@@ -1362,8 +1512,9 @@ func Test_snapshotName(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest
 func Test_destroyZeroSizedSnapshots(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		snaps []zfs.Snapshot
 		cfg   config.Config
@@ -1514,9 +1665,13 @@ func Test_destroyZeroSizedSnapshots(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			destroySnapshotFn = testCase.mockDestroySnapshotFunc
+			t.Parallel()
 
-			got := destroyZeroSizedSnapshots(testCase.args.snaps, testCase.args.cfg)
+			got := destroyZeroSizedSnapshots(
+				testCase.mockDestroySnapshotFunc,
+				func(snapshot *zfs.Snapshot, _ bool) bool { return snapshot.Used == 0 },
+				io.Discard,
+				testCase.args.snaps, testCase.args.cfg)
 
 			diff := deep.Equal(got, testCase.want)
 			if diff != nil {
@@ -1526,157 +1681,46 @@ func Test_destroyZeroSizedSnapshots(t *testing.T) {
 	}
 }
 
-// test helpers from here down
+func TestDestroyZeroSizedSnapshotsVerboseOutput(t *testing.T) {
+	t.Parallel()
 
-//nolint:paralleltest
-func TestFindEligibleDatasets_noExistingSnapshotsOneDataset(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
+	output := &bytes.Buffer{}
+	destroyZeroSizedSnapshots(
+		func(string, bool, bool) error { return nil },
+		func(*zfs.Snapshot, bool) bool { return true },
+		output,
+		[]zfs.Snapshot{{Name: "tank/a@2"}, {Name: "tank/a@1"}},
+		config.Config{DryRun: true, Verbose: true},
+	)
+
+	want := "Destroying zero-sized snapshot: tank/a@1\n"
+	if got := output.String(); got != want {
+		t.Errorf("output = %q, want %q", got, want)
 	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-t",
-		"filesystem,volume",
-		"-o",
-		"name,type,com.sun:auto-snapshot:frequent,com.sun:auto-snapshot,mounted",
-		"-s",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("tank/fs1\tfilesystem\t-\ttrue\tyes\n") //nolint:forbidigo
-
-	os.Exit(0)
 }
 
-//nolint:paralleltest
-func TestFindEligibleDatasets_noExistingSnapshotsTwoDatasetsOneUnmounted(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
+func findEligibleDatasetsOutput(name string) []byte {
+	var (
+		output       string
+		enabledTwice = strings.Repeat("\ttrue", 2)
+	)
 
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-t",
-		"filesystem,volume",
-		"-o",
-		"name,type,com.sun:auto-snapshot:frequent,com.sun:auto-snapshot,mounted",
-		"-s",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("tank/fs1\tfilesystem\t-\ttrue\tyes\n") //nolint:forbidigo
-	fmt.Printf("tank/fs2\tfilesystem\t-\ttrue\tno\n")  //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestFindEligibleDatasets_alreadyFound(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-t",
-		"filesystem,volume",
-		"-o",
-		"name,type,com.sun:auto-snapshot:frequent,com.sun:auto-snapshot,mounted",
-		"-s",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("tank/fs1\tfilesystem\t-\ttrue\tyes\n")    //nolint:forbidigo
-	fmt.Printf("tank/fs2\tfilesystem\ttrue\ttrue\tyes\n") //nolint:forbidigo,dupword
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestFindEligibleDatasets_onlyFreq(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-t",
-		"filesystem,volume",
-		"-o",
-		"name,type,com.sun:auto-snapshot:frequent,com.sun:auto-snapshot,mounted",
-		"-s",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("tank/fs1\tfilesystem\t-\ttrue\tyes\n")    //nolint:forbidigo
-	fmt.Printf("tank/fs2\tfilesystem\ttrue\ttrue\tyes\n") //nolint:forbidigo,dupword
-	fmt.Printf("tank/fs3\tfilesystem\ttrue\t-\tyes\n")    //nolint:forbidigo
-	fmt.Printf("tank/fs4\tfilesystem\t-\t-\tyes\n")       //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestFindEligibleDatasets_manyDatasets(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-t",
-		"filesystem,volume",
-		"-o",
-		"name,type,com.sun:auto-snapshot:frequent,com.sun:auto-snapshot,mounted",
-		"-s",
-		"name",
-		"-r",
-		"tank",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	//nolint:forbidigo
-	fmt.Printf(`tank	filesystem	-	-	yes
+	switch name {
+	case "TestFindEligibleDatasets_noExistingSnapshotsOneDataset":
+		output = "tank/fs1\tfilesystem\t-\ttrue\tyes\n"
+	case "TestFindEligibleDatasets_noExistingSnapshotsTwoDatasetsOneUnmounted":
+		output = "tank/fs1\tfilesystem\t-\ttrue\tyes\n" +
+			"tank/fs2\tfilesystem\t-\ttrue\tno\n"
+	case "TestFindEligibleDatasets_alreadyFound":
+		output = "tank/fs1\tfilesystem\t-\ttrue\tyes\n" +
+			"tank/fs2\tfilesystem" + enabledTwice + "\tyes\n"
+	case "TestFindEligibleDatasets_onlyFreq":
+		output = "tank/fs1\tfilesystem\t-\ttrue\tyes\n" +
+			"tank/fs2\tfilesystem" + enabledTwice + "\tyes\n" +
+			"tank/fs3\tfilesystem\ttrue\t-\tyes\n" +
+			"tank/fs4\tfilesystem\t-\t-\tyes\n"
+	case "TestFindEligibleDatasets_manyDatasets":
+		output = `tank	filesystem	-	-	yes
 tank/ROOT	filesystem	-	-	no
 tank/ROOT/default	filesystem	-	true	yes
 tank/poudriere	filesystem	-	false	yes
@@ -1705,7 +1749,8 @@ tank/var/tmp	filesystem	-	-	yes
 tank/moredata	filesystem	-	true	yes
 tank/moredata/2	filesystem	-	false	yes
 tank/moredata/3	filesystem	-	true	yes
-`)
+`
+	}
 
-	os.Exit(0)
+	return []byte(output)
 }

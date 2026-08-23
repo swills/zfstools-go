@@ -2,7 +2,9 @@ package zfs
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"maps"
 	"slices"
 	"strings"
@@ -13,8 +15,8 @@ type Pool struct {
 	Name       string
 }
 
-// ListPools returns zfs pool(s), all pools or just the one specified by name arg
-func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
+// ListPools returns ZFS pools using the client's command runner.
+func (client Client) ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 	if len(cmdProps) == 0 {
 		cmdProps = []string{"all"}
 	}
@@ -28,30 +30,25 @@ func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 	}
 
 	if debug {
-		fmt.Print(strings.Join(append([]string{"zpool"}, args...), " ")) //nolint:forbidigo
-
+		line := strings.Join(append([]string{"zpool"}, args...), " ")
 		if strings.Contains(strings.Join(args, " "), "@") {
-			fmt.Print(" 2>/dev/null") //nolint:forbidigo
+			line += " 2>/dev/null"
 		}
 
-		fmt.Printf("\n") //nolint:forbidigo
+		_, _ = fmt.Fprintln(client.output, line)
 	}
 
-	cmd := runZpoolFn("zpool", args...)
-
-	stdout, err := cmd.StdoutPipe()
+	out, err := client.runner.Run("zpool", args...)
 	if err != nil {
-		return nil, fmt.Errorf("stdout pipe: %w", err)
+		return nil, fmt.Errorf("zpool get: %w", err)
 	}
 
-	err = cmd.Start()
-	if err != nil {
-		return nil, fmt.Errorf("zpool start: %w", err)
-	}
+	return parsePools(bytes.NewReader(out)), nil
+}
 
+func parsePools(reader io.Reader) []Pool {
 	poolProps := map[string]map[string]string{}
-
-	scanner := bufio.NewScanner(stdout)
+	scanner := bufio.NewScanner(reader)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -71,11 +68,6 @@ func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 		poolProps[poolName][propName] = propValue
 	}
 
-	err = cmd.Wait()
-	if err != nil {
-		return nil, fmt.Errorf("zpool wait: %w", err)
-	}
-
 	pools := make([]Pool, 0, 1)
 
 	for _, poolName := range slices.Sorted(maps.Keys(poolProps)) {
@@ -85,5 +77,5 @@ func ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
 		})
 	}
 
-	return pools, nil
+	return pools
 }

@@ -1,285 +1,97 @@
 package zfs
 
 import (
-	"fmt"
-	"os"
+	"io"
 	"testing"
 
 	"github.com/go-test/deep"
-
-	"zfstools-go/internal/zfstoolstest"
 )
 
-//nolint:paralleltest
 func TestListDatasets(t *testing.T) {
-	type args struct {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
 		pool       string
 		properties []string
-		debug      bool
-	}
-
-	//nolint:govet
-	tests := []struct {
-		name        string
-		args        args
-		mockCmdFunc string
-		want        []Dataset
+		output     string
+		wantArgs   []string
+		want       []Dataset
 	}{
 		{
-			name: "twoDatasets",
-			args: args{
-				pool:       "",
-				properties: []string{"mysql", "com.sun:auto-snapshot"},
-				debug:      false,
+			name:       "all pools",
+			properties: []string{"mysql", "com.sun:auto-snapshot"},
+			output:     "pool/fs1\tfilesystem\tmysql\t-\npool/fs2\tfilesystem\t-\ttrue\n",
+			wantArgs: []string{
+				"list", "-H", "-t", "filesystem,volume", "-o",
+				"name,type,mysql,com.sun:auto-snapshot", "-s", "name",
 			},
-			mockCmdFunc: "TestListDatasets_EmptyPoolName",
 			want: []Dataset{
-				{
-					Name: "pool/fs1",
-					Properties: map[string]string{
-						"type":  "filesystem",
-						"mysql": "mysql",
-					},
-					DB: "",
-				},
-				{
-					Name: "pool/fs2",
-					Properties: map[string]string{
-						"type":                  "filesystem",
-						"com.sun:auto-snapshot": "true",
-					},
-					DB: "",
-				},
+				{Name: "pool/fs1", Properties: map[string]string{"type": "filesystem", "mysql": "mysql"}},
+				{Name: "pool/fs2", Properties: map[string]string{
+					"type": "filesystem", "com.sun:auto-snapshot": "true",
+				}},
 			},
 		},
 		{
-			name: "datasetsWithPoolName",
-			args: args{
-				pool:       "tank",
-				properties: []string{"com.sun:auto-snapshot"},
-				debug:      false,
+			name:       "pool and database properties",
+			pool:       "dozer",
+			properties: []string{"com.sun:auto-snapshot"},
+			output: "dozer\tfilesystem\t-\n" +
+				"dozer/mysql\tfilesystem\tmysql\n" +
+				"dozer/postgresql\tfilesystem\tpostgresql\n",
+			wantArgs: []string{
+				"list", "-H", "-t", "filesystem,volume", "-o",
+				"name,type,com.sun:auto-snapshot", "-s", "name", "-r", "dozer",
 			},
-			mockCmdFunc: "TestListDatasets_PoolNameSet",
 			want: []Dataset{
-				{
-					Name: "tank",
-					Properties: map[string]string{
-						"type": "filesystem",
-					},
-					DB: "",
-				},
-				{
-					Name: "tank/ROOT",
-					Properties: map[string]string{
-						"type": "filesystem",
-					},
-					DB: "",
-				},
-				{
-					Name: "tank/ROOT/default",
-					Properties: map[string]string{
-						"type":                  "filesystem",
-						"com.sun:auto-snapshot": "true",
-					},
-					DB: "",
-				},
+				{Name: "dozer", Properties: map[string]string{"type": "filesystem"}},
+				{Name: "dozer/mysql", Properties: map[string]string{
+					"type": "filesystem", "com.sun:auto-snapshot": "mysql",
+				}, DB: "mysql"},
+				{Name: "dozer/postgresql", Properties: map[string]string{
+					"type": "filesystem", "com.sun:auto-snapshot": "postgresql",
+				}, DB: "postgresql"},
 			},
 		},
 		{
-			name: "mySQLAndPostgreSQL",
-			args: args{
-				pool:       "dozer",
-				properties: []string{"com.sun:auto-snapshot"},
-				debug:      false,
+			name:       "malformed rows",
+			properties: []string{"com.sun:auto-snapshot"},
+			output:     "bogus\nmissing\tfilesystem\nvalid\tfilesystem\ttrue\n",
+			wantArgs: []string{
+				"list", "-H", "-t", "filesystem,volume", "-o",
+				"name,type,com.sun:auto-snapshot", "-s", "name",
 			},
-			mockCmdFunc: "TestListDatasets_MySQLAndPostgreSQL",
-			want: []Dataset{
-				{
-					Name: "dozer",
-					Properties: map[string]string{
-						"type": "filesystem",
-					},
-					DB: "",
-				},
-				{
-					Name: "dozer/mysql",
-					Properties: map[string]string{
-						"type":                  "filesystem",
-						"com.sun:auto-snapshot": "mysql",
-					},
-					DB: "mysql",
-				},
-				{
-					Name: "dozer/postgresql",
-					Properties: map[string]string{
-						"type":                  "filesystem",
-						"com.sun:auto-snapshot": "postgresql",
-					},
-					DB: "postgresql",
-				},
-			},
-		},
-		{
-			name: "shortLine",
-			args: args{
-				pool:       "",
-				properties: []string{"mysql", "com.sun:auto-snapshot"},
-				debug:      false,
-			},
-			mockCmdFunc: "TestListDatasets_EmptyPoolNameShortLine",
-			want: []Dataset{
-				{
-					Name: "pool/fs1",
-					Properties: map[string]string{
-						"type":  "filesystem",
-						"mysql": "mysql",
-					},
-					DB: "",
-				},
-				{
-					Name: "pool/fs2",
-					Properties: map[string]string{
-						"type":                  "filesystem",
-						"com.sun:auto-snapshot": "true",
-					},
-					DB: "",
-				},
-			},
+			want: []Dataset{{Name: "valid", Properties: map[string]string{
+				"type": "filesystem", "com.sun:auto-snapshot": "true",
+			}}},
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			RunZfsFn = zfstoolstest.MakeFakeCommand(testCase.mockCmdFunc)
+			t.Parallel()
 
-			got := ListDatasets(testCase.args.pool, testCase.args.properties, testCase.args.debug)
+			runner := &fakeRunner{output: []byte(testCase.output)}
+			got := NewClient(runner, io.Discard).ListDatasets(testCase.pool, testCase.properties, false)
 
-			diff := deep.Equal(got, testCase.want)
-			if diff != nil {
-				t.Errorf("compare failed: %v", diff)
+			if diff := deep.Equal(got, testCase.want); diff != nil {
+				t.Errorf("datasets differ: %v", diff)
+			}
+
+			wantCall := []commandCall{{name: "zfs", args: testCase.wantArgs}}
+			if diff := deep.Equal(runner.calls, wantCall); diff != nil {
+				t.Errorf("command differs: %v", diff)
 			}
 		})
 	}
 }
 
-// test helpers from here down
+func TestListDatasetsCommandError(t *testing.T) {
+	t.Parallel()
 
-//nolint:paralleltest
-func TestListDatasets_EmptyPoolName(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
+	runner := &fakeRunner{err: errTestCommand}
+	if got := NewClient(runner, io.Discard).ListDatasets("", nil, false); len(got) != 0 {
+		t.Fatalf("ListDatasets() = %v, want empty result", got)
 	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-t",
-		"filesystem,volume",
-		"-o",
-		"name,type,mysql,com.sun:auto-snapshot",
-		"-s",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("pool/fs1\tfilesystem\tmysql\t-\npool/fs2\tfilesystem\t-\ttrue\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListDatasets_PoolNameSet(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-t",
-		"filesystem,volume",
-		"-o",
-		"name,type,com.sun:auto-snapshot",
-		"-s",
-		"name",
-		"-r",
-		"tank",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("tank\tfilesystem\t-\ntank/ROOT\tfilesystem\t-\ntank/ROOT/default\tfilesystem\ttrue\n") //nolint:forbidigo
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListDatasets_MySQLAndPostgreSQL(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-t",
-		"filesystem,volume",
-		"-o",
-		"name,type,com.sun:auto-snapshot",
-		"-s",
-		"name",
-		"-r",
-		"dozer",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("dozer\tfilesystem\t-\ndozer/mysql\tfilesystem\tmysql\ndozer/postgresql\tfilesystem\tpostgresql\n") //nolint:forbidigo,lll
-
-	os.Exit(0)
-}
-
-//nolint:paralleltest
-func TestListDatasets_EmptyPoolNameShortLine(_ *testing.T) {
-	if !zfstoolstest.IsTestEnv() {
-		return
-	}
-
-	cmdWithArgs := os.Args[3:]
-
-	expectedCmdWithArgs := []string{
-		"zfs",
-		"list",
-		"-H",
-		"-t",
-		"filesystem,volume",
-		"-o",
-		"name,type,mysql,com.sun:auto-snapshot",
-		"-s",
-		"name",
-	}
-
-	if deep.Equal(cmdWithArgs, expectedCmdWithArgs) != nil {
-		os.Exit(1)
-	}
-
-	fmt.Printf("bogus\npool/fs1\tfilesystem\tmysql\t-\npool/fs2\tfilesystem\t-\ttrue\n") //nolint:forbidigo
-
-	os.Exit(0)
 }

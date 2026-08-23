@@ -2,6 +2,7 @@ package zfstools
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -9,8 +10,18 @@ import (
 	"zfstools-go/internal/zfs"
 )
 
-func snapshotProperty() string {
-	return "com.sun:auto-snapshot"
+const snapshotProperty = "com.sun:auto-snapshot"
+
+const snapshotFormat = "2006-01-02-15h04"
+
+type Tools struct {
+	client zfs.Client
+	output io.Writer
+}
+
+// New creates orchestration tools backed by a ZFS client.
+func New(client zfs.Client, output io.Writer) Tools {
+	return Tools{client: client, output: output}
 }
 
 func snapshotPrefix(cfg config.Config) string {
@@ -25,19 +36,15 @@ func snapshotPrefixInterval(cfg config.Config) string {
 	return snapshotPrefix(cfg) + "_" + cfg.Interval + "-"
 }
 
-func snapshotFormat() string {
-	return "2006-01-02-15h04"
-}
-
 func snapshotName(cfg config.Config) string {
 	timestamp := cfg.Timestamp
 	if cfg.UseUTC {
 		timestamp = timestamp.UTC()
 
-		return snapshotPrefixInterval(cfg) + timestamp.Format(snapshotFormat()) + "U"
+		return snapshotPrefixInterval(cfg) + timestamp.Format(snapshotFormat) + "U"
 	}
 
-	return snapshotPrefixInterval(cfg) + timestamp.Format(snapshotFormat())
+	return snapshotPrefixInterval(cfg) + timestamp.Format(snapshotFormat)
 }
 
 // filterDatasets does the filtering work for FindEligibleDatasets
@@ -72,73 +79,17 @@ func filterDatasets(datasets []zfs.Dataset, included, excluded *[]zfs.Dataset, p
 }
 
 // findRecursiveDatasets helps FindEligibleDatasets decide which datasets can be snapshot recursively
-//
-//nolint:gocognit,cyclop
 func findRecursiveDatasets(datasets map[string][]zfs.Dataset) map[string][]zfs.Dataset {
 	all := append([]zfs.Dataset{}, datasets["included"]...)
 	all = append(all, datasets["excluded"]...)
+	excludedNames := make(map[string]struct{}, len(datasets["excluded"]))
 
-	var single, recursive, cleanedRecursive []zfs.Dataset
-
-	for _, dataset := range datasets["included"] {
-		excludedChild := false
-
-		for _, child := range all {
-			if strings.HasPrefix(child.Name, dataset.Name) {
-				for _, ex := range datasets["excluded"] {
-					if ex.Name == child.Name {
-						excludedChild = true
-
-						single = append(single, dataset)
-
-						break
-					}
-				}
-
-				if excludedChild {
-					break
-				}
-			}
-		}
-
-		if !excludedChild {
-			recursive = append(recursive, dataset)
-		}
+	for _, dataset := range datasets["excluded"] {
+		excludedNames[dataset.Name] = struct{}{}
 	}
 
-	for _, dataset := range recursive {
-		var parent *zfs.Dataset
-
-		if strings.Contains(dataset.Name, "/") {
-			prefix := dataset.Name[:strings.LastIndex(dataset.Name, "/")]
-
-			for _, d := range all {
-				if d.Name == prefix {
-					parent = &d
-
-					break
-				}
-			}
-		}
-
-		if parent == nil || parent.Name == dataset.Name {
-			cleanedRecursive = append(cleanedRecursive, dataset)
-		} else {
-			inRecursive := false
-
-			for _, r := range recursive {
-				if r.Name == parent.Name {
-					inRecursive = true
-
-					break
-				}
-			}
-
-			if !inRecursive {
-				cleanedRecursive = append(cleanedRecursive, dataset)
-			}
-		}
-	}
+	single, recursive := partitionRecursiveDatasets(datasets["included"], all, excludedNames)
+	cleanedRecursive := removeRecursiveChildren(all, recursive)
 
 	for i := range cleanedRecursive {
 		parent := &cleanedRecursive[i]
@@ -157,26 +108,91 @@ func findRecursiveDatasets(datasets map[string][]zfs.Dataset) map[string][]zfs.D
 	}
 }
 
-// FindEligibleDatasets returns datasets eligible for snapshotting, groups into 4 groups:
+func partitionRecursiveDatasets(
+	included, all []zfs.Dataset,
+	excludedNames map[string]struct{},
+) ([]zfs.Dataset, []zfs.Dataset) {
+	var single, recursive []zfs.Dataset
+
+	for _, dataset := range included {
+		if hasExcludedChild(dataset, all, excludedNames) {
+			single = append(single, dataset)
+		} else {
+			recursive = append(recursive, dataset)
+		}
+	}
+
+	return single, recursive
+}
+
+func hasExcludedChild(dataset zfs.Dataset, all []zfs.Dataset, excludedNames map[string]struct{}) bool {
+	for _, child := range all {
+		if !strings.HasPrefix(child.Name, dataset.Name) {
+			continue
+		}
+
+		if _, excluded := excludedNames[child.Name]; excluded {
+			return true
+		}
+	}
+
+	return false
+}
+
+func removeRecursiveChildren(all, recursive []zfs.Dataset) []zfs.Dataset {
+	allNames := make(map[string]struct{}, len(all))
+	recursiveNames := make(map[string]struct{}, len(recursive))
+
+	for _, dataset := range all {
+		allNames[dataset.Name] = struct{}{}
+	}
+
+	for _, dataset := range recursive {
+		recursiveNames[dataset.Name] = struct{}{}
+	}
+
+	var cleaned []zfs.Dataset
+
+	for _, dataset := range recursive {
+		separator := strings.LastIndex(dataset.Name, "/")
+		if separator == -1 {
+			cleaned = append(cleaned, dataset)
+
+			continue
+		}
+
+		parentName := dataset.Name[:separator]
+		_, parentExists := allNames[parentName]
+		_, parentIsRecursive := recursiveNames[parentName]
+
+		if !parentExists || !parentIsRecursive {
+			cleaned = append(cleaned, dataset)
+		}
+	}
+
+	return cleaned
+}
+
+// FindEligibleDatasets returns datasets eligible for snapshotting, grouped into four categories:
 // - single: datasets which cannot be snapshot recursively and must be done individually
 // - recursive: datasets which can be snapshot recursively, since all snapshots below them are eligible as well
 // - included: datasets which were included in one of those two lists
 // - excluded: datasets which were excluded from both of those lists
-func FindEligibleDatasets(cfg config.Config, pool string) map[string][]zfs.Dataset {
+func (tools Tools) FindEligibleDatasets(cfg config.Config, pool string) map[string][]zfs.Dataset {
 	props := []string{
-		snapshotProperty() + ":" + cfg.Interval,
-		snapshotProperty(),
+		snapshotProperty + ":" + cfg.Interval,
+		snapshotProperty,
 		"mounted",
 	}
 
-	all := zfs.ListDatasets(pool, props, cfg.Debug)
+	all := tools.client.ListDatasets(pool, props, cfg.Debug)
 
 	var included []zfs.Dataset
 
 	var excluded []zfs.Dataset
 
-	filterDatasets(all, &included, &excluded, snapshotProperty()+":"+cfg.Interval)
-	filterDatasets(all, &included, &excluded, snapshotProperty())
+	filterDatasets(all, &included, &excluded, snapshotProperty+":"+cfg.Interval)
+	filterDatasets(all, &included, &excluded, snapshotProperty)
 
 	return findRecursiveDatasets(map[string][]zfs.Dataset{
 		"included": included,
@@ -184,11 +200,15 @@ func FindEligibleDatasets(cfg config.Config, pool string) map[string][]zfs.Datas
 	})
 }
 
-// DoNewSnapshots creates the single and recursive snapshots
-func DoNewSnapshots(cfg config.Config, datasets map[string][]zfs.Dataset) {
+// DoNewSnapshots creates the single and recursive snapshots.
+func (tools Tools) DoNewSnapshots(cfg config.Config, datasets map[string][]zfs.Dataset) {
 	name := snapshotName(cfg)
-	_ = createManySnapshotsFn(name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
-	_ = createManySnapshotsFn(name, datasets["recursive"], true, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads)
+	_ = tools.client.CreateManySnapshots(
+		name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads,
+	)
+	_ = tools.client.CreateManySnapshots(
+		name, datasets["recursive"], true, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads,
+	)
 }
 
 func GroupSnapshotsIntoDatasets(snaps []zfs.Snapshot, datasets []zfs.Dataset) map[string][]zfs.Snapshot {
@@ -213,7 +233,13 @@ func GroupSnapshotsIntoDatasets(snaps []zfs.Snapshot, datasets []zfs.Dataset) ma
 	return result
 }
 
-func destroyZeroSizedSnapshots(snaps []zfs.Snapshot, cfg config.Config) []zfs.Snapshot {
+func destroyZeroSizedSnapshots(
+	destroySnapshot func(string, bool, bool) error,
+	isZero func(*zfs.Snapshot, bool) bool,
+	output io.Writer,
+	snaps []zfs.Snapshot,
+	cfg config.Config,
+) []zfs.Snapshot {
 	if len(snaps) == 0 {
 		return nil
 	}
@@ -221,31 +247,41 @@ func destroyZeroSizedSnapshots(snaps []zfs.Snapshot, cfg config.Config) []zfs.Sn
 	// retain the newest snapshot (first in list)
 	keep := []zfs.Snapshot{snaps[0]}
 
-	for _, snap := range snaps[1:] {
-		if snap.IsZero(cfg.Debug) {
+	for i := range snaps[1:] {
+		snap := &snaps[i+1]
+		if isZero(snap, cfg.Debug) {
 			if cfg.Verbose {
-				fmt.Println("Destroying zero-sized snapshot:", snap.Name) //nolint:forbidigo
+				_, _ = fmt.Fprintln(output, "Destroying zero-sized snapshot:", snap.Name)
 			}
 
 			if !cfg.DryRun {
-				_ = destroySnapshotFn(snap.Name, cfg.DryRun, cfg.Debug)
+				_ = destroySnapshot(snap.Name, cfg.DryRun, cfg.Debug)
 			}
 		} else {
-			keep = append(keep, snap)
+			keep = append(keep, *snap)
 		}
 	}
 
 	return keep
 }
 
-func DatasetsDestroyZeroSizedSnapshots(grouped map[string][]zfs.Snapshot, cfg config.Config) map[string][]zfs.Snapshot {
+func (tools Tools) DatasetsDestroyZeroSizedSnapshots(
+	grouped map[string][]zfs.Snapshot,
+	cfg config.Config,
+) map[string][]zfs.Snapshot {
 	var waitGroup sync.WaitGroup
 
 	for name, snaps := range grouped {
 		waitGroup.Add(1)
 
 		go func() {
-			grouped[name] = destroyZeroSizedSnapshots(snaps, cfg)
+			grouped[name] = destroyZeroSizedSnapshots(
+				tools.client.DestroySnapshot,
+				func(snapshot *zfs.Snapshot, debug bool) bool { return snapshot.IsZero(debug) },
+				tools.output,
+				snaps,
+				cfg,
+			)
 
 			waitGroup.Done()
 		}()
@@ -260,8 +296,12 @@ func DatasetsDestroyZeroSizedSnapshots(grouped map[string][]zfs.Snapshot, cfg co
 	return grouped
 }
 
-func CleanupExpiredSnapshots(cfg config.Config, pool string, datasets map[string][]zfs.Dataset) {
-	snaps, _ := zfs.ListSnapshotsFn(pool, true, cfg.Debug)
+func (tools Tools) CleanupExpiredSnapshots(
+	cfg config.Config,
+	pool string,
+	datasets map[string][]zfs.Dataset,
+) {
+	snaps, _ := tools.client.ListSnapshots(pool, true, cfg.Debug)
 
 	var filtered []zfs.Snapshot
 
@@ -293,7 +333,7 @@ func CleanupExpiredSnapshots(cfg config.Config, pool string, datasets map[string
 	}
 
 	if cfg.ShouldDestroyZeroSized {
-		grouped = DatasetsDestroyZeroSizedSnapshots(grouped, cfg)
+		grouped = tools.DatasetsDestroyZeroSizedSnapshots(grouped, cfg)
 	}
 
 	for name := range grouped {
@@ -314,7 +354,7 @@ func CleanupExpiredSnapshots(cfg config.Config, pool string, datasets map[string
 			waitGroup.Add(1)
 
 			go func() {
-				_ = destroySnapshotFn(s.Name, cfg.DryRun, cfg.Debug)
+				_ = tools.client.DestroySnapshot(s.Name, cfg.DryRun, cfg.Debug)
 
 				waitGroup.Done()
 			}()

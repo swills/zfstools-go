@@ -2,7 +2,9 @@ package zfs
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -12,10 +14,8 @@ type Dataset struct {
 	DB         string
 }
 
-// ListDatasets returns a list of ZFS datasets for the pool and properties
-func ListDatasets(pool string, properties []string, debug bool) []Dataset {
-	var datasets []Dataset
-
+// ListDatasets returns a list of ZFS datasets using the client's command executor.
+func (client Client) ListDatasets(pool string, properties []string, debug bool) []Dataset {
 	cmdProperties := append([]string{"name", "type"}, properties...)
 
 	args := []string{"list", "-H", "-t", "filesystem,volume", "-o", strings.Join(cmdProperties, ","), "-s", "name"}
@@ -24,27 +24,25 @@ func ListDatasets(pool string, properties []string, debug bool) []Dataset {
 	}
 
 	if debug {
-		fmt.Println("zfs " + strings.Join(args, " ")) //nolint:forbidigo
+		_, _ = fmt.Fprintln(client.output, "zfs "+strings.Join(args, " "))
 	}
 
-	cmd := RunZfsFn("zfs", args...)
-
-	stdout, err := cmd.StdoutPipe()
+	out, err := client.runner.Run("zfs", args...)
 	if err != nil {
 		return []Dataset{}
 	}
 
-	err = cmd.Start()
-	if err != nil {
-		return []Dataset{}
-	}
+	return parseDatasets(bytes.NewReader(out), properties)
+}
 
-	scanner := bufio.NewScanner(stdout)
+func parseDatasets(reader io.Reader, properties []string) []Dataset {
+	datasets := []Dataset{}
+	scanner := bufio.NewScanner(reader)
+
 	for scanner.Scan() {
-		line := scanner.Text()
-		values := strings.Split(line, "\t")
+		values := strings.Split(scanner.Text(), "\t")
 
-		if len(values) < 2 {
+		if len(values) != len(properties)+2 {
 			continue
 		}
 
@@ -72,11 +70,6 @@ func ListDatasets(pool string, properties []string, debug bool) []Dataset {
 		}
 
 		datasets = append(datasets, dataset)
-	}
-
-	err = cmd.Wait()
-	if err != nil {
-		return []Dataset{}
 	}
 
 	return datasets

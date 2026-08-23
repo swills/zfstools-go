@@ -90,12 +90,15 @@ func RunAutoSnapshot(name string, args []string, stdout, stderr io.Writer, versi
 		cfg.Keep = int(keep)
 	}
 
-	datasets := zfstools.FindEligibleDatasets(cfg, pool)
+	client := zfs.NewSystemClient(stdout)
+	tools := zfstools.New(client, stdout)
+
+	datasets := tools.FindEligibleDatasets(cfg, pool)
 	if cfg.Keep > 0 {
-		zfstools.DoNewSnapshots(cfg, datasets)
+		tools.DoNewSnapshots(cfg, datasets)
 	}
 
-	zfstools.CleanupExpiredSnapshots(cfg, pool, datasets)
+	tools.CleanupExpiredSnapshots(cfg, pool, datasets)
 
 	return 0
 }
@@ -131,7 +134,10 @@ func RunCleanupSnapshots(name string, args []string, stdout, stderr io.Writer, v
 		return 0
 	}
 
-	snapshots, err := zfs.ListSnapshotsFn(pool, true, cfg.Debug)
+	client := zfs.NewSystemClient(stdout)
+	tools := zfstools.New(client, stdout)
+
+	snapshots, err := client.ListSnapshots(pool, true, cfg.Debug)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "Error listing snapshots: %v\n", err)
 
@@ -145,9 +151,9 @@ func RunCleanupSnapshots(name string, args []string, stdout, stderr io.Writer, v
 		}
 	}
 
-	datasets := zfs.ListDatasets(pool, []string{}, cfg.Debug)
+	datasets := client.ListDatasets(pool, []string{}, cfg.Debug)
 	grouped := zfstools.GroupSnapshotsIntoDatasets(filtered, datasets)
-	zfstools.DatasetsDestroyZeroSizedSnapshots(grouped, cfg)
+	tools.DatasetsDestroyZeroSizedSnapshots(grouped, cfg)
 
 	return 0
 }
