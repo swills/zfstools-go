@@ -2,9 +2,11 @@ package zfs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync/atomic"
 )
 
@@ -18,6 +20,10 @@ type execRunner struct{}
 func (execRunner) Run(name string, args ...string) ([]byte, error) {
 	output, err := exec.CommandContext(context.Background(), name, args...).Output()
 	if err != nil {
+		if exitError, ok := errors.AsType[*exec.ExitError](err); ok && len(exitError.Stderr) > 0 {
+			return nil, fmt.Errorf("run %s: %w: %s", name, err, strings.TrimSpace(string(exitError.Stderr)))
+		}
+
 		return nil, fmt.Errorf("run %s: %w", name, err)
 	}
 

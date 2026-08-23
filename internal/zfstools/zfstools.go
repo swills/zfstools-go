@@ -1,6 +1,7 @@
 package zfstools
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -213,14 +214,24 @@ func (tools Tools) FindEligibleDatasets(cfg config.Config, pool string) map[stri
 }
 
 // DoNewSnapshots creates the single and recursive snapshots.
-func (tools Tools) DoNewSnapshots(cfg config.Config, datasets map[string][]zfs.Dataset) {
+func (tools Tools) DoNewSnapshots(cfg config.Config, datasets map[string][]zfs.Dataset) error {
 	name := snapshotName(cfg)
-	_ = tools.client.CreateManySnapshots(
-		name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads,
-	)
-	_ = tools.client.CreateManySnapshots(
-		name, datasets["recursive"], true, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads,
-	)
+
+	var singleErr, recursiveErr error
+
+	if len(datasets["single"]) > 0 {
+		singleErr = tools.client.CreateManySnapshots(
+			name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads,
+		)
+	}
+
+	if len(datasets["recursive"]) > 0 {
+		recursiveErr = tools.client.CreateManySnapshots(
+			name, datasets["recursive"], true, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads,
+		)
+	}
+
+	return errors.Join(singleErr, recursiveErr)
 }
 
 func GroupSnapshotsIntoDatasets(snaps []zfs.Snapshot, datasets []zfs.Dataset) map[string][]zfs.Snapshot {

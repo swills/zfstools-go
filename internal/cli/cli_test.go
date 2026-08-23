@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -159,5 +160,29 @@ func TestRunAutoSnapshotRejectsInvalidKeep(t *testing.T) {
 
 	if got, want := stderr.String(), "invalid KEEP \"10oops\": must be a non-negative decimal integer\n"; got != want {
 		t.Errorf("RunAutoSnapshot() stderr = %q, want %q", got, want)
+	}
+}
+
+func TestRunSnapshotMySQLDryRun(t *testing.T) {
+	t.Parallel()
+
+	stdout := &bytes.Buffer{}
+
+	code := RunSnapshotMySQL(
+		mysqlName,
+		[]string{"--dry-run", "--verbose", "pool/mysql"},
+		stdout,
+		&bytes.Buffer{},
+		"dev",
+		"none",
+	)
+	if code != 0 {
+		t.Fatalf("RunSnapshotMySQL() code = %d, want 0", code)
+	}
+
+	for _, value := range []string{"mysql -e", "SYSTEM zfs snapshot -r pool/mysql@"} {
+		if !strings.Contains(stdout.String(), value) {
+			t.Errorf("RunSnapshotMySQL() stdout = %q, want substring %q", stdout.String(), value)
+		}
 	}
 }

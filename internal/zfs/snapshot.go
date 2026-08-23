@@ -119,68 +119,149 @@ func (client Client) CreateSnapshots(
 	dbName string,
 	dryRun, verbose, debug bool,
 ) error {
+	targets, err := buildSnapshotTargets(datasetNames, snapshotName)
+	if err != nil {
+		return err
+	}
+
+	zfsArgs := []string{"snapshot"}
+	if recursive {
+		zfsArgs = append(zfsArgs, "-r")
+	}
+
+	zfsArgs = append(zfsArgs, targets...)
+
+	switch dbName {
+	case "mysql":
+		err = client.createMySQLSnapshots(zfsArgs, dryRun, verbose || debug)
+		if err != nil {
+			return fmt.Errorf("create snapshots %s: %w", strings.Join(targets, ", "), err)
+		}
+
+		return nil
+
+	case "postgresql":
+		err = client.createPostgreSQLSnapshots(zfsArgs, dryRun, verbose || debug)
+		if err != nil {
+			return fmt.Errorf("create snapshots %s: %w", strings.Join(targets, ", "), err)
+		}
+
+		return nil
+	}
+
+	if debug || verbose {
+		_, _ = fmt.Fprintln(client.output, shellCommand("zfs", zfsArgs...))
+	}
+
+	if dryRun {
+		return nil
+	}
+
+	if _, err = client.runner.Run("zfs", zfsArgs...); err != nil {
+		return fmt.Errorf("create snapshots %s: %w", strings.Join(targets, ", "), err)
+	}
+
+	return nil
+}
+
+func buildSnapshotTargets(datasetNames []string, snapshotName string) ([]string, error) {
 	if snapshotName == "" {
-		return ErrEmptySnapshotName
+		return nil, ErrEmptySnapshotName
 	}
 
 	if strings.Contains(snapshotName, "@") {
-		return fmt.Errorf("%w: %s", ErrInvalidSnapshotName, snapshotName)
+		return nil, fmt.Errorf("%w: %s", ErrInvalidSnapshotName, snapshotName)
 	}
 
 	if len(datasetNames) < 1 {
-		return ErrNoDatasets
+		return nil, ErrNoDatasets
 	}
 
 	targets := make([]string, 0, len(datasetNames))
 	for _, datasetName := range datasetNames {
 		if datasetName == "" || strings.Contains(datasetName, "@") {
-			return fmt.Errorf("%w: %s", ErrInvalidSnapshotName, datasetName)
+			return nil, fmt.Errorf("%w: %s", ErrInvalidSnapshotName, datasetName)
 		}
 
 		targets = append(targets, datasetName+"@"+snapshotName)
 	}
 
-	base := []string{"zfs", "snapshot"}
-	if recursive {
-		base = append(base, "-r")
+	return targets, nil
+}
+
+func (client Client) createMySQLSnapshots(zfsArgs []string, dryRun, showCommand bool) error {
+	sql := "FLUSH LOGS; FLUSH TABLES WITH READ LOCK; SYSTEM " + shellCommand("zfs", zfsArgs...) +
+		"; UNLOCK TABLES;"
+
+	if showCommand {
+		_, _ = fmt.Fprintln(client.output, shellCommand("mysql", "-e", sql))
 	}
 
-	cmdLine := base
-	cmdLine = append(cmdLine, targets...)
-
-	cmdStr := strings.Join(cmdLine, " ")
-
-	switch dbName {
-	case "mysql":
-		sql := fmt.Sprintf(`
-FLUSH LOGS;
-FLUSH TABLES WITH READ LOCK;
-SYSTEM %s;
-UNLOCK TABLES;`, cmdStr)
-		cmdStr = fmt.Sprintf(`mysql -e "%s"`, strings.ReplaceAll(sql, "\n", " "))
-
-	case "postgresql":
-		cmdStr = fmt.Sprintf(
-			`(psql -c "SELECT PG_START_BACKUP('zfs-auto-snapshot');" postgres ; %s ) ; `+
-				`psql -c "SELECT PG_STOP_BACKUP();" postgres`,
-			cmdStr,
-		)
+	if dryRun {
+		return nil
 	}
 
-	if debug || verbose {
-		_, _ = fmt.Fprintln(client.output, cmdStr)
-	}
-
-	var err error
-
-	if !dryRun {
-		_, err = client.runner.Run("sh", "-c", cmdStr)
-		if err != nil {
-			return fmt.Errorf("error creating snapshot: %w", err)
-		}
+	if _, err := client.runner.Run("mysql", "-e", sql); err != nil {
+		return fmt.Errorf("create MySQL snapshots: %w", err)
 	}
 
 	return nil
+}
+
+func (client Client) createPostgreSQLSnapshots(zfsArgs []string, dryRun, showCommand bool) error {
+	startArgs := []string{"-c", "SELECT PG_START_BACKUP('zfs-auto-snapshot');", "postgres"}
+	stopArgs := []string{"-c", "SELECT PG_STOP_BACKUP();", "postgres"}
+
+	if showCommand {
+		_, _ = fmt.Fprintln(client.output, shellCommand("psql", startArgs...))
+		_, _ = fmt.Fprintln(client.output, shellCommand("zfs", zfsArgs...))
+		_, _ = fmt.Fprintln(client.output, shellCommand("psql", stopArgs...))
+	}
+
+	if dryRun {
+		return nil
+	}
+
+	var result error
+
+	if _, err := client.runner.Run("psql", startArgs...); err != nil {
+		result = errors.Join(result, fmt.Errorf("start PostgreSQL backup: %w", err))
+	}
+
+	if _, err := client.runner.Run("zfs", zfsArgs...); err != nil {
+		result = errors.Join(result, fmt.Errorf("create PostgreSQL snapshots: %w", err))
+	}
+
+	if _, err := client.runner.Run("psql", stopArgs...); err != nil {
+		result = errors.Join(result, fmt.Errorf("stop PostgreSQL backup: %w", err))
+	}
+
+	return result
+}
+
+func shellCommand(name string, args ...string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, shellQuote(name))
+
+	for _, arg := range args {
+		parts = append(parts, shellQuote(arg))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+
+	for _, char := range value {
+		if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-", char) {
+			return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+		}
+	}
+
+	return value
 }
 
 type createOptions struct {
@@ -206,18 +287,18 @@ func (client Client) CreateManySnapshots(
 		recursive: recursive, dryRun: dryRun, verbose: verbose, debug: debug, useThreads: useThreads,
 	}
 	dbDatasets, regularDatasets := partitionDatasets(datasets)
-	failed := client.createIndividualSnapshots(snapshotName, dbDatasets, options)
+	result := client.createIndividualSnapshots(snapshotName, dbDatasets, options)
 
 	if len(regularDatasets) > 0 {
 		if client.hasBookmarks(debug) {
-			failed = client.createPooledSnapshots(snapshotName, regularDatasets, options) || failed
+			result = errors.Join(result, client.createPooledSnapshots(snapshotName, regularDatasets, options))
 		} else {
-			failed = client.createIndividualSnapshots(snapshotName, regularDatasets, options) || failed
+			result = errors.Join(result, client.createIndividualSnapshots(snapshotName, regularDatasets, options))
 		}
 	}
 
-	if failed {
-		return ErrOneSnapshotOfManyErrored
+	if result != nil {
+		return errors.Join(ErrOneSnapshotOfManyErrored, result)
 	}
 
 	return nil
@@ -263,20 +344,19 @@ func (client Client) createIndividualSnapshots(
 	snapshotName string,
 	datasets []Dataset,
 	options createOptions,
-) bool {
+) error {
 	if !options.useThreads {
-		failed := false
+		var result error
 
 		for _, dataset := range datasets {
-			if client.CreateSnapshots(
+			err := client.CreateSnapshots(
 				[]string{dataset.Name}, snapshotName, options.recursive, dataset.DB,
 				options.dryRun, options.verbose, options.debug,
-			) != nil {
-				failed = true
-			}
+			)
+			result = errors.Join(result, err)
 		}
 
-		return failed
+		return result
 	}
 
 	results := make(chan error, len(datasets))
@@ -289,22 +369,20 @@ func (client Client) createIndividualSnapshots(
 		}()
 	}
 
-	failed := false
+	var result error
 
 	for range datasets {
-		if <-results != nil {
-			failed = true
-		}
+		result = errors.Join(result, <-results)
 	}
 
-	return failed
+	return result
 }
 
 func (client Client) createPooledSnapshots(
 	snapshotName string,
 	datasets []Dataset,
 	options createOptions,
-) bool {
+) error {
 	pools := make(map[string][]string)
 	maxTargetLength := 0
 
@@ -320,21 +398,21 @@ func (client Client) createPooledSnapshots(
 
 	available := max(client.getArgMax()-1024, 1)
 	chunkSize := max(available/maxTargetLength, 1)
-	failed := false
+
+	var result error
 
 	for _, datasetNames := range pools {
 		for index := 0; index < len(datasetNames); index += chunkSize {
 			end := min(index+chunkSize, len(datasetNames))
-			if client.CreateSnapshots(
+			err := client.CreateSnapshots(
 				datasetNames[index:end], snapshotName, options.recursive, "",
 				options.dryRun, options.verbose, options.debug,
-			) != nil {
-				failed = true
-			}
+			)
+			result = errors.Join(result, err)
 		}
 	}
 
-	return failed
+	return result
 }
 
 func (client Client) getArgMax() int {

@@ -2,7 +2,9 @@ package zfs
 
 import (
 	"errors"
+	"strings"
 	"sync"
+	"testing"
 )
 
 var errTestCommand = errors.New("test command failed")
@@ -30,4 +32,17 @@ func (runner *fakeRunner) Run(name string, args ...string) ([]byte, error) {
 	}
 
 	return runner.output, runner.err
+}
+
+func TestExecRunnerIncludesStderr(t *testing.T) {
+	t.Parallel()
+
+	_, err := (execRunner{}).Run("sh", "-c", "echo command failed >&2; exit 1")
+	if err == nil {
+		t.Fatal("Run() error = nil, want command error")
+	}
+
+	if !strings.Contains(err.Error(), "command failed") {
+		t.Errorf("Run() error = %q, want stderr", err)
+	}
 }

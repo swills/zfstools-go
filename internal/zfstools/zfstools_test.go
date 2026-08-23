@@ -2,6 +2,7 @@ package zfstools
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -30,6 +31,8 @@ type commandCall struct {
 	args []string
 }
 
+var errTestCommand = errors.New("test command failed")
+
 func (runner *fakeRunner) Run(name string, args ...string) ([]byte, error) {
 	runner.mu.Lock()
 	runner.name = name
@@ -56,21 +59,59 @@ func TestDoNewSnapshots(t *testing.T) {
 		Interval:  "frequent",
 		Timestamp: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
 	}
+
 	datasets := map[string][]zfs.Dataset{
 		"single":    {{Name: "pool/fs1"}},
 		"recursive": {{Name: "pool/fs2"}},
 	}
-	tools.DoNewSnapshots(cfg, datasets)
+	if err := tools.DoNewSnapshots(cfg, datasets); err != nil {
+		t.Fatalf("DoNewSnapshots() error = %v", err)
+	}
 
 	want := []commandCall{
 		{name: "zpool", args: []string{
 			"get", "-H", "-p", "-o", "name,property,value", "feature@bookmarks",
 		}},
-		{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@zfs-auto-snap_frequent-2025-01-02-03h04"}},
-		{name: "sh", args: []string{"-c", "zfs snapshot -r pool/fs2@zfs-auto-snap_frequent-2025-01-02-03h04"}},
+		{name: "zfs", args: []string{"snapshot", "pool/fs1@zfs-auto-snap_frequent-2025-01-02-03h04"}},
+		{name: "zfs", args: []string{
+			"snapshot", "-r", "pool/fs2@zfs-auto-snap_frequent-2025-01-02-03h04",
+		}},
 	}
 	if diff := deep.Equal(runner.calls, want); diff != nil {
 		t.Errorf("commands differ: %v", diff)
+	}
+}
+
+func TestDoNewSnapshotsContinuesAfterError(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{runFunc: func(name string, args ...string) ([]byte, error) {
+		if name == "zfs" && args[len(args)-1] == "pool/fs1@zfs-auto-snap_frequent-2025-01-02-03h04" {
+			return nil, errTestCommand
+		}
+
+		return nil, nil
+	}}
+	tools := New(zfs.NewClient(runner, io.Discard), io.Discard)
+	cfg := config.Config{
+		Interval: "frequent", Timestamp: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
+	}
+	datasets := map[string][]zfs.Dataset{
+		"single":    {{Name: "pool/fs1"}},
+		"recursive": {{Name: "pool/fs2"}},
+	}
+
+	err := tools.DoNewSnapshots(cfg, datasets)
+	if !errors.Is(err, zfs.ErrOneSnapshotOfManyErrored) {
+		t.Fatalf("DoNewSnapshots() error = %v, want snapshot error", err)
+	}
+
+	if !errors.Is(err, errTestCommand) {
+		t.Errorf("DoNewSnapshots() error = %v, want underlying command error", err)
+	}
+
+	if got := len(runner.calls); got != 3 {
+		t.Errorf("command count = %d, want feature check and both snapshots", got)
 	}
 }
 

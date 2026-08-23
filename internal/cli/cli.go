@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -98,11 +96,19 @@ func RunAutoSnapshot(name string, args []string, stdout, stderr io.Writer, versi
 	tools := zfstools.New(client, stdout)
 
 	datasets := tools.FindEligibleDatasets(cfg, pool)
+
+	var createErr error
 	if cfg.Keep > 0 {
-		tools.DoNewSnapshots(cfg, datasets)
+		createErr = tools.DoNewSnapshots(cfg, datasets)
 	}
 
 	tools.CleanupExpiredSnapshots(cfg, pool, datasets)
+
+	if createErr != nil {
+		_, _ = fmt.Fprintf(stderr, "Error creating snapshots: %v\n", createErr)
+
+		return 1
+	}
 
 	return 0
 }
@@ -208,20 +214,16 @@ func RunSnapshotMySQL(name string, args []string, stdout, stderr io.Writer, vers
 		return 0
 	}
 
-	snapshot := fmt.Sprintf("%s@%s", flags.Arg(0), time.Now().Format("2006-01-02T15:04:05"))
-	zfsCmd := "zfs snapshot -r " + snapshot
-	sql := fmt.Sprintf(`FLUSH LOGS; FLUSH TABLES WITH READ LOCK; SYSTEM %s; UNLOCK TABLES;`, zfsCmd)
-	mysqlCmd := fmt.Sprintf(`mysql -e "%s"`, sql)
+	client := zfs.NewSystemClient(stdout)
 
-	if debug || verbose {
-		_, _ = fmt.Fprintln(stdout, mysqlCmd)
-	}
+	err := client.CreateSnapshots(
+		[]string{flags.Arg(0)}, time.Now().Format("2006-01-02T15:04:05"), true, "mysql",
+		dryRun, verbose, debug,
+	)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "Error creating snapshot: %v\n", err)
 
-	if !dryRun {
-		cmd := exec.CommandContext(context.Background(), "sh", "-c", mysqlCmd)
-		cmd.Stdout = stdout
-		cmd.Stderr = stderr
-		_ = cmd.Run()
+		return 1
 	}
 
 	return 0

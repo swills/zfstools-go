@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/go-test/deep"
@@ -173,9 +172,9 @@ func TestCreateSnapshots(t *testing.T) {
 		wantErr      error
 		name         string
 		database     string
-		wantCmd      string
 		snapshotName string
 		datasetNames []string
+		wantCalls    []commandCall
 		recursive    bool
 		dryRun       bool
 	}{
@@ -191,22 +190,44 @@ func TestCreateSnapshots(t *testing.T) {
 		},
 		{
 			name: "single", datasetNames: []string{"pool/fs"}, snapshotName: "snap",
-			wantCmd: "zfs snapshot pool/fs@snap",
+			wantCalls: []commandCall{{name: "zfs", args: []string{"snapshot", "pool/fs@snap"}}},
+		},
+		{
+			name: "direct argument with shell syntax", datasetNames: []string{"pool/fs; touch /tmp/pwn"},
+			snapshotName: "snap",
+			wantCalls: []commandCall{{
+				name: "zfs", args: []string{"snapshot", "pool/fs; touch /tmp/pwn@snap"},
+			}},
 		},
 		{
 			name: "multiple recursive", datasetNames: []string{"pool/fs1", "pool/fs2"}, snapshotName: "snap",
 			recursive: true,
-			wantCmd:   "zfs snapshot -r pool/fs1@snap pool/fs2@snap",
+			wantCalls: []commandCall{{
+				name: "zfs", args: []string{"snapshot", "-r", "pool/fs1@snap", "pool/fs2@snap"},
+			}},
 		},
 		{
 			name: "mysql", datasetNames: []string{"pool/fs"}, snapshotName: "snap", database: "mysql",
-			wantCmd: "mysql -e \" FLUSH LOGS; FLUSH TABLES WITH READ LOCK; " +
-				"SYSTEM zfs snapshot pool/fs@snap; UNLOCK TABLES;\"",
+			wantCalls: []commandCall{{name: "mysql", args: []string{
+				"-e", "FLUSH LOGS; FLUSH TABLES WITH READ LOCK; " +
+					"SYSTEM zfs snapshot pool/fs@snap; UNLOCK TABLES;",
+			}}},
+		},
+		{
+			name: "mysql shell syntax", datasetNames: []string{"pool/fs; touch /tmp/pwn"},
+			snapshotName: "snap", database: "mysql",
+			wantCalls: []commandCall{{name: "mysql", args: []string{
+				"-e", "FLUSH LOGS; FLUSH TABLES WITH READ LOCK; " +
+					"SYSTEM zfs snapshot 'pool/fs; touch /tmp/pwn@snap'; UNLOCK TABLES;",
+			}}},
 		},
 		{
 			name: "postgresql", datasetNames: []string{"pool/fs"}, snapshotName: "snap", database: "postgresql",
-			wantCmd: "(psql -c \"SELECT PG_START_BACKUP('zfs-auto-snapshot');\" postgres ; " +
-				"zfs snapshot pool/fs@snap ) ; psql -c \"SELECT PG_STOP_BACKUP();\" postgres",
+			wantCalls: []commandCall{
+				{name: "psql", args: []string{"-c", "SELECT PG_START_BACKUP('zfs-auto-snapshot');", "postgres"}},
+				{name: "zfs", args: []string{"snapshot", "pool/fs@snap"}},
+				{name: "psql", args: []string{"-c", "SELECT PG_STOP_BACKUP();", "postgres"}},
+			},
 		},
 		{name: "dry run", datasetNames: []string{"pool/fs"}, snapshotName: "snap", dryRun: true},
 	}
@@ -226,12 +247,7 @@ func TestCreateSnapshots(t *testing.T) {
 				t.Fatalf("CreateSnapshots() error = %v, want %v", err, testCase.wantErr)
 			}
 
-			wantCalls := []commandCall(nil)
-			if testCase.wantCmd != "" && !testCase.dryRun {
-				wantCalls = []commandCall{{name: "sh", args: []string{"-c", testCase.wantCmd}}}
-			}
-
-			if diff := deep.Equal(runner.calls, wantCalls); diff != nil {
+			if diff := deep.Equal(runner.calls, testCase.wantCalls); diff != nil {
 				t.Errorf("commands differ: %v", diff)
 			}
 		})
@@ -246,6 +262,28 @@ func TestCreateSnapshotsCommandError(t *testing.T) {
 		[]string{"pool/fs"}, "snap", false, "", false, false, false,
 	); err == nil {
 		t.Fatal("CreateSnapshots() error = nil, want command error")
+	}
+}
+
+func TestCreatePostgreSQLSnapshotsAttemptsStopAfterErrors(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{err: errTestCommand}
+
+	err := NewClient(runner, io.Discard).CreateSnapshots(
+		[]string{"pool/postgres"}, "snap", false, "postgresql", false, false, false,
+	)
+	if !errors.Is(err, errTestCommand) {
+		t.Fatalf("CreateSnapshots() error = %v, want command error", err)
+	}
+
+	want := []commandCall{
+		{name: "psql", args: []string{"-c", "SELECT PG_START_BACKUP('zfs-auto-snapshot');", "postgres"}},
+		{name: "zfs", args: []string{"snapshot", "pool/postgres@snap"}},
+		{name: "psql", args: []string{"-c", "SELECT PG_STOP_BACKUP();", "postgres"}},
+	}
+	if diff := deep.Equal(runner.calls, want); diff != nil {
+		t.Errorf("commands differ: %v", diff)
 	}
 }
 
@@ -275,7 +313,7 @@ func TestCreateManySnapshots(t *testing.T) {
 				"get", "-H", "-p", "-o", "name,property,value", "feature@bookmarks",
 			}},
 			{name: "getconf", args: []string{"ARG_MAX"}},
-			{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@auto pool/fs2@auto"}},
+			{name: "zfs", args: []string{"snapshot", "pool/fs1@auto", "pool/fs2@auto"}},
 		}
 
 		if diff := deep.Equal(runner.calls, want); diff != nil {
@@ -299,8 +337,8 @@ func TestCreateManySnapshots(t *testing.T) {
 			{name: "zpool", args: []string{
 				"get", "-H", "-p", "-o", "name,property,value", "feature@bookmarks",
 			}},
-			{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@auto"}},
-			{name: "sh", args: []string{"-c", "zfs snapshot pool/fs2@auto"}},
+			{name: "zfs", args: []string{"snapshot", "pool/fs1@auto"}},
+			{name: "zfs", args: []string{"snapshot", "pool/fs2@auto"}},
 		}
 		if diff := deep.Equal(runner.calls, want); diff != nil {
 			t.Errorf("commands differ: %v", diff)
@@ -310,8 +348,8 @@ func TestCreateManySnapshots(t *testing.T) {
 	t.Run("one command fails", func(t *testing.T) {
 		t.Parallel()
 
-		runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
-			if args[1] == "zfs snapshot pool/fs2@auto" {
+		runner := &fakeRunner{runFunc: func(name string, args ...string) ([]byte, error) {
+			if name == "zfs" && args[len(args)-1] == "pool/fs2@auto" {
 				return nil, errTestCommand
 			}
 
@@ -340,9 +378,9 @@ func TestCreateManySnapshotsDatabaseDataset(t *testing.T) {
 		t.Fatalf("CreateManySnapshots() error = %v", err)
 	}
 
-	want := []commandCall{{name: "sh", args: []string{
-		"-c", "mysql -e \" FLUSH LOGS; FLUSH TABLES WITH READ LOCK; " +
-			"SYSTEM zfs snapshot pool/mysql@auto; UNLOCK TABLES;\"",
+	want := []commandCall{{name: "mysql", args: []string{
+		"-e", "FLUSH LOGS; FLUSH TABLES WITH READ LOCK; " +
+			"SYSTEM zfs snapshot pool/mysql@auto; UNLOCK TABLES;",
 	}}}
 	if diff := deep.Equal(runner.calls, want); diff != nil {
 		t.Errorf("commands differ: %v", diff)
@@ -352,8 +390,8 @@ func TestCreateManySnapshotsDatabaseDataset(t *testing.T) {
 func TestCreateManySnapshotsMixedDatasetsContinueAfterError(t *testing.T) {
 	t.Parallel()
 
-	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
-		if strings.HasPrefix(args[1], "mysql -e") {
+	runner := &fakeRunner{runFunc: func(name string, _ ...string) ([]byte, error) {
+		if name == "mysql" {
 			return nil, errTestCommand
 		}
 
@@ -374,7 +412,7 @@ func TestCreateManySnapshotsMixedDatasetsContinueAfterError(t *testing.T) {
 	}
 
 	if got := runner.calls[2]; deep.Equal(got, commandCall{
-		name: "sh", args: []string{"-c", "zfs snapshot pool/files@auto"},
+		name: "zfs", args: []string{"snapshot", "pool/files@auto"},
 	}) != nil {
 		t.Errorf("regular dataset command = %#v", got)
 	}
@@ -389,13 +427,13 @@ func TestCreateManySnapshotsParallelFallback(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "success"},
-		{name: "failure", fail: "zfs snapshot pool/fs2@auto", wantErr: true},
+		{name: "failure", fail: "pool/fs2@auto", wantErr: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
-				if args[1] == testCase.fail {
+			runner := &fakeRunner{runFunc: func(name string, args ...string) ([]byte, error) {
+				if name == "zfs" && args[len(args)-1] == testCase.fail {
 					return nil, errTestCommand
 				}
 
@@ -410,27 +448,27 @@ func TestCreateManySnapshotsParallelFallback(t *testing.T) {
 				t.Fatalf("CreateManySnapshots() error = %v, wantErr %v", err, testCase.wantErr)
 			}
 
-			commands := make([]string, 0, len(runner.calls))
+			targets := make([]string, 0, len(runner.calls))
 			for _, call := range runner.calls {
 				if call.name == "zpool" {
 					continue
 				}
 
-				if call.name != "sh" || len(call.args) != 2 || call.args[0] != "-c" {
+				if call.name != "zfs" || len(call.args) != 2 || call.args[0] != "snapshot" {
 					t.Fatalf("unexpected command: %#v", call)
 				}
 
-				commands = append(commands, call.args[1])
+				targets = append(targets, call.args[1])
 			}
 
-			slices.Sort(commands)
+			slices.Sort(targets)
 
 			want := []string{
-				"zfs snapshot pool/fs1@auto",
-				"zfs snapshot pool/fs2@auto",
-				"zfs snapshot pool/fs3@auto",
+				"pool/fs1@auto",
+				"pool/fs2@auto",
+				"pool/fs3@auto",
 			}
-			if diff := deep.Equal(commands, want); diff != nil {
+			if diff := deep.Equal(targets, want); diff != nil {
 				t.Errorf("commands differ: %v", diff)
 			}
 		})
@@ -461,8 +499,8 @@ func TestCreateManySnapshotsMinimumChunkSize(t *testing.T) {
 			"get", "-H", "-p", "-o", "name,property,value", "feature@bookmarks",
 		}},
 		{name: "getconf", args: []string{"ARG_MAX"}},
-		{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@auto"}},
-		{name: "sh", args: []string{"-c", "zfs snapshot pool/fs2@auto"}},
+		{name: "zfs", args: []string{"snapshot", "pool/fs1@auto"}},
+		{name: "zfs", args: []string{"snapshot", "pool/fs2@auto"}},
 	}
 	if diff := deep.Equal(runner.calls, want); diff != nil {
 		t.Errorf("commands differ: %v", diff)
