@@ -5,13 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 )
 
-var errTestCommand = errors.New("test command failed")
+var (
+	errContextNotCanceled = errors.New("context was not canceled")
+	errTestCommand        = errors.New("test command failed")
+)
 
 type commandCall struct {
 	name string
@@ -28,8 +31,42 @@ type fakeRunner struct {
 
 type canceledRunner struct{}
 
+type fakeCommands struct {
+	output          string
+	stderr          string
+	name            string
+	args            []string
+	fail            bool
+	requireCanceled bool
+}
+
 func (canceledRunner) Run(ctx context.Context, _ io.Writer, _ string, _ ...string) error {
 	return fmt.Errorf("run canceled command: %w", ctx.Err())
+}
+
+func (commands *fakeCommands) run(
+	ctx context.Context,
+	stdout, stderr io.Writer,
+	name string,
+	args ...string,
+) error {
+	commands.name = name
+
+	commands.args = append([]string(nil), args...)
+
+	if commands.requireCanceled && ctx.Err() == nil {
+		return errContextNotCanceled
+	}
+
+	_, stdoutErr := io.WriteString(stdout, commands.output)
+	_, stderrErr := io.WriteString(stderr, commands.stderr)
+
+	var commandErr error
+	if commands.fail {
+		commandErr = errTestCommand
+	}
+
+	return errors.Join(commandErr, stdoutErr, stderrErr)
 }
 
 func (runner *fakeRunner) Run(_ context.Context, output io.Writer, name string, args ...string) error {
@@ -52,9 +89,11 @@ func (runner *fakeRunner) Run(_ context.Context, output io.Writer, name string, 
 func TestExecRunnerWritesStdout(t *testing.T) {
 	t.Parallel()
 
+	commands := &fakeCommands{output: "command-output"}
+
 	var output strings.Builder
 
-	err := (execRunner{}).Run(t.Context(), &output, "sh", "-c", "printf command-output")
+	err := (execRunner{commands: commands}).Run(t.Context(), &output, "zfs", "list", "-H")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -62,14 +101,25 @@ func TestExecRunnerWritesStdout(t *testing.T) {
 	if got := output.String(); got != "command-output" {
 		t.Errorf("Run() output = %q, want command-output", got)
 	}
+
+	want := commandCall{name: "zfs", args: []string{"list", "-H"}}
+	if commands.name != want.name || !slices.Equal(commands.args, want.args) {
+		t.Errorf("command = %#v, want %#v", commandCall{name: commands.name, args: commands.args}, want)
+	}
 }
 
 func TestExecRunnerIncludesStderr(t *testing.T) {
 	t.Parallel()
 
-	err := (execRunner{}).Run(t.Context(), io.Discard, "sh", "-c", "echo command failed >&2; exit 1")
+	commands := &fakeCommands{stderr: "  command failed\n", fail: true}
+
+	err := (execRunner{commands: commands}).Run(t.Context(), io.Discard, "zfs", "list")
 	if err == nil {
 		t.Fatal("Run() error = nil, want command error")
+	}
+
+	if !errors.Is(err, errTestCommand) {
+		t.Errorf("Run() error = %v, want underlying command error", err)
 	}
 
 	if !strings.Contains(err.Error(), "command failed") {
@@ -77,18 +127,30 @@ func TestExecRunnerIncludesStderr(t *testing.T) {
 	}
 }
 
-func TestExecRunnerReportsStartError(t *testing.T) {
+func TestExecRunnerIncludesNameWithoutStderr(t *testing.T) {
 	t.Parallel()
 
-	name := filepath.Join(t.TempDir(), "missing-command")
+	commands := &fakeCommands{fail: true}
 
-	err := (execRunner{}).Run(t.Context(), io.Discard, name)
+	err := (execRunner{commands: commands}).Run(t.Context(), io.Discard, "missing-command")
 	if err == nil {
-		t.Fatal("Run() error = nil, want start error")
+		t.Fatal("Run() error = nil, want command error")
 	}
 
-	if !strings.Contains(err.Error(), name) {
-		t.Errorf("Run() error = %q, want command name %q", err, name)
+	if !strings.Contains(err.Error(), "missing-command") {
+		t.Errorf("Run() error = %q, want command name", err)
+	}
+}
+
+func TestExecRunnerForwardsContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	commands := &fakeCommands{requireCanceled: true}
+	if err := (execRunner{commands: commands}).Run(ctx, io.Discard, "zfs", "list"); err != nil {
+		t.Fatalf("Run() error = %v", err)
 	}
 }
 
