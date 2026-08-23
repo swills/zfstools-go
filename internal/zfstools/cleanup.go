@@ -82,6 +82,10 @@ func (tools Tools) destroySnapshots(ctx context.Context, snapshots []zfs.Snapsho
 			}
 		}
 
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("destroy snapshots: %w", err)
+		}
+
 		return nil
 	}
 
@@ -102,6 +106,10 @@ func (tools Tools) destroySnapshots(ctx context.Context, snapshots []zfs.Snapsho
 
 	for range snapshots {
 		result = errors.Join(result, <-results)
+	}
+
+	if err := ctx.Err(); err != nil {
+		result = errors.Join(result, fmt.Errorf("destroy snapshots: %w", err))
 	}
 
 	return result

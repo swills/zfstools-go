@@ -29,6 +29,7 @@ type fakeRunner struct {
 	failGet               bool
 	failSnapshot          bool
 	failSnapshots         bool
+	cancelOnDestroy       bool
 }
 
 type cleanupCommand struct {
@@ -43,10 +44,8 @@ func (runner *fakeRunner) Run(ctx context.Context, output io.Writer, name string
 	runner.calls = append(runner.calls, cleanupCommand{name: name, args: append([]string(nil), args...)})
 	runner.mu.Unlock()
 
-	if runner.cancel != nil && snapshotCommandTargetsDataset(name, args, runner.cancelSnapshotDataset) {
-		runner.cancel()
-
-		return fmt.Errorf("cancel snapshot command: %w", ctx.Err())
+	if err := runner.cancellationError(ctx, name, args); err != nil {
+		return err
 	}
 
 	if err := runner.commandError(name, args); err != nil {
@@ -80,6 +79,24 @@ func (runner *fakeRunner) Run(ctx context.Context, output io.Writer, name string
 	_, err := io.WriteString(output, data)
 	if err != nil {
 		return fmt.Errorf("write fake command output: %w", err)
+	}
+
+	return nil
+}
+
+func (runner *fakeRunner) cancellationError(ctx context.Context, name string, args []string) error {
+	if runner.cancel == nil {
+		return nil
+	}
+
+	if snapshotCommandTargetsDataset(name, args, runner.cancelSnapshotDataset) {
+		runner.cancel()
+
+		return fmt.Errorf("cancel snapshot command: %w", ctx.Err())
+	}
+
+	if runner.cancelOnDestroy && name == "zfs" && len(args) > 0 && args[0] == "destroy" {
+		runner.cancel()
 	}
 
 	return nil
@@ -488,6 +505,41 @@ func TestRunAutoSnapshotKeepZeroCancellationSkipsCleanup(t *testing.T) {
 	}
 }
 
+func TestRunAutoSnapshotCancellationAfterFinalDestroyReturnsFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	runner := &fakeRunner{
+		cancel:          cancel,
+		cancelOnDestroy: true,
+		snapshotOutput:  "tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t10\t1\n",
+	}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(runner, stdout)
+
+	code := runAutoSnapshot(ctx, autoSnapshotName, []string{"daily", "0"}, stdout, stderr, "dev", "none", client)
+	if code != 1 {
+		t.Fatalf("runAutoSnapshot() code = %d, want 1", code)
+	}
+
+	if !strings.Contains(stderr.String(), context.Canceled.Error()) {
+		t.Errorf("runAutoSnapshot() stderr = %q, want context cancellation", stderr.String())
+	}
+
+	destroyCalls := 0
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyCalls++
+		}
+	}
+
+	if destroyCalls != 1 {
+		t.Errorf("destroy command count = %d, want 1", destroyCalls)
+	}
+}
+
 func TestRunAutoSnapshotReportsDatasetDiscoveryFailure(t *testing.T) {
 	t.Parallel()
 
@@ -667,6 +719,37 @@ func TestRunCleanupSnapshotsDryRunReportsMutations(t *testing.T) {
 		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
 			t.Errorf("unexpected mutation during dry run: %s %v", call.name, call.args)
 		}
+	}
+}
+
+func TestRunCleanupSnapshotsCancellationAfterFinalDestroyReturnsFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	runner := &fakeRunner{cancel: cancel, cancelOnDestroy: true}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(runner, stdout)
+
+	code := runCleanupSnapshots(ctx, cleanupName, nil, stdout, stderr, "dev", "none", client)
+	if code != 1 {
+		t.Fatalf("runCleanupSnapshots() code = %d, want 1", code)
+	}
+
+	if !strings.Contains(stderr.String(), context.Canceled.Error()) {
+		t.Errorf("runCleanupSnapshots() stderr = %q, want context cancellation", stderr.String())
+	}
+
+	destroyCalls := 0
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyCalls++
+		}
+	}
+
+	if destroyCalls != 1 {
+		t.Errorf("destroy command count = %d, want 1", destroyCalls)
 	}
 }
 

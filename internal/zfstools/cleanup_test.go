@@ -171,6 +171,31 @@ func TestDestroySnapshotsCancellation(t *testing.T) {
 			t.Errorf("Run calls = %v, want only first destruction", runner.calls)
 		}
 	})
+
+	t.Run("after final serial cleanup", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
+			if args[0] == "destroy" {
+				cancel()
+			}
+
+			return nil, nil
+		}}
+		client := zfs.NewClient(runner, io.Discard)
+
+		err := New(client, io.Discard).destroySnapshots(
+			ctx, []zfs.Snapshot{{Name: "tank/a@1"}}, config.Config{},
+		)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("destroySnapshots() error = %v, want context cancellation", err)
+		}
+
+		if len(runner.calls) != 1 {
+			t.Errorf("Run calls = %d, want final destruction", len(runner.calls))
+		}
+	})
 }
 
 func TestDestroySnapshotsParallelDryRunOutput(t *testing.T) {
@@ -197,6 +222,32 @@ func TestDestroySnapshotsParallelDryRunOutput(t *testing.T) {
 
 	if len(runner.calls) != 0 {
 		t.Errorf("Run calls = %v, want none", runner.calls)
+	}
+}
+
+func TestDestroySnapshotsParallelReportsCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
+		if args[0] == "destroy" {
+			cancel()
+		}
+
+		return nil, nil
+	}}
+	client := zfs.NewClient(runner, io.Discard)
+	snapshots := []zfs.Snapshot{{Name: "tank/a@1"}, {Name: "tank/b@1"}, {Name: "tank/c@1"}}
+
+	err := New(client, io.Discard).destroySnapshots(
+		ctx, snapshots, config.Config{UseThreads: true},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("destroySnapshots() error = %v, want context cancellation", err)
+	}
+
+	if len(runner.calls) != len(snapshots) {
+		t.Errorf("Run calls = %d, want %d launched destroys", len(runner.calls), len(snapshots))
 	}
 }
 
@@ -787,6 +838,59 @@ func TestApplySnapshotRetentionDestroyErrorStopsSerialCleanup(t *testing.T) {
 	}
 }
 
+func TestApplySnapshotRetentionJoinsParallelDestroyErrors(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
+		if args[0] == "list" {
+			return []byte(
+				"tank/data@zfs-auto-snap_daily-2025-01-03-03h04\t10\t3\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t10\t2\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t10\t1\n",
+			), nil
+		}
+
+		if args[0] != "destroy" {
+			return nil, nil
+		}
+
+		if strings.Contains(args[len(args)-1], "2025-01-02") {
+			return nil, errTestCommand
+		}
+
+		return nil, errSecondTestCommand
+	}}
+	tools := New(zfs.NewClient(runner, io.Discard), io.Discard)
+	datasets := map[string][]zfs.Dataset{"included": {{Name: "tank/data"}}}
+
+	err := tools.ApplySnapshotRetention(
+		t.Context(), config.Config{Interval: "daily", Keep: 1, UseThreads: true},
+		"tank", datasets, retentionTargets("tank/data"),
+	)
+	if !errors.Is(err, errTestCommand) || !errors.Is(err, errSecondTestCommand) {
+		t.Fatalf("ApplySnapshotRetention() error = %v, want both destroy errors", err)
+	}
+
+	var destroyed []string
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyed = append(destroyed, call.args[len(call.args)-1])
+		}
+	}
+
+	slices.Sort(destroyed)
+
+	want := []string{
+		"tank/data@zfs-auto-snap_daily-2025-01-01-03h04",
+		"tank/data@zfs-auto-snap_daily-2025-01-02-03h04",
+	}
+
+	if !slices.Equal(destroyed, want) {
+		t.Errorf("destroyed snapshots = %v, want %v", destroyed, want)
+	}
+}
+
 func TestApplySnapshotRetentionReportsZeroSizePlanError(t *testing.T) {
 	t.Parallel()
 
@@ -836,8 +940,9 @@ func TestApplySnapshotRetentionReportsZeroSizeDestroyError(t *testing.T) {
 	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
 		if args[0] == "list" {
 			return []byte(
-				"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t1\t2\n" +
-					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t0\t1\n",
+				"tank/data@zfs-auto-snap_daily-2025-01-03-03h04\t1\t3\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t0\t2\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t1\t1\n",
 			), nil
 		}
 
@@ -856,6 +961,19 @@ func TestApplySnapshotRetentionReportsZeroSizeDestroyError(t *testing.T) {
 	)
 	if !errors.Is(err, errTestCommand) {
 		t.Fatalf("ApplySnapshotRetention() error = %v, want destroy error", err)
+	}
+
+	var destroyed []string
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyed = append(destroyed, call.args[len(call.args)-1])
+		}
+	}
+
+	want := []string{"tank/data@zfs-auto-snap_daily-2025-01-02-03h04"}
+	if !slices.Equal(destroyed, want) {
+		t.Errorf("destroyed snapshots = %v, want only failed zero-size candidate", destroyed)
 	}
 }
 
@@ -889,6 +1007,46 @@ func TestPruneZeroSizedSnapshots(t *testing.T) {
 
 	if !slices.Equal(destroyed, []string{"tank/data@manual-old"}) {
 		t.Errorf("destroyed snapshots = %v, want manual-old", destroyed)
+	}
+}
+
+func TestPruneZeroSizedSnapshotsDestroyErrorStopsSerialCleanup(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
+		switch {
+		case args[0] == "list" && slices.Contains(args, "snapshot"):
+			return []byte(
+				"tank/data@manual-new\t0\t3\n" +
+					"tank/data@manual-middle\t0\t2\n" +
+					"tank/data@manual-old\t0\t1\n",
+			), nil
+		case args[0] == "list":
+			return []byte("tank/data\tfilesystem\n"), nil
+		case args[0] == "destroy":
+			return nil, errTestCommand
+		default:
+			return nil, nil
+		}
+	}}
+	tools := New(zfs.NewClient(runner, io.Discard), io.Discard)
+
+	err := tools.PruneZeroSizedSnapshots(t.Context(), config.Config{}, "tank")
+	if !errors.Is(err, errTestCommand) {
+		t.Fatalf("PruneZeroSizedSnapshots() error = %v, want destroy error", err)
+	}
+
+	var destroyed []string
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyed = append(destroyed, call.args[len(call.args)-1])
+		}
+	}
+
+	want := []string{"tank/data@manual-middle"}
+	if !slices.Equal(destroyed, want) {
+		t.Errorf("destroyed snapshots = %v, want only first candidate", destroyed)
 	}
 }
 
