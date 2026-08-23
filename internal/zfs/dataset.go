@@ -32,14 +32,15 @@ func (client Client) ListDatasets(pool string, properties []string, debug bool) 
 
 	err := <-done
 	if err != nil {
-		return []Dataset{}
+		return nil
 	}
 
 	return datasets
 }
 
 func parseDatasets(reader io.Reader, properties []string) []Dataset {
-	datasets := []Dataset{}
+	var datasets []Dataset
+
 	scanner := bufio.NewScanner(reader)
 
 	for scanner.Scan() {

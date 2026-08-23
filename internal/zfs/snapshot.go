@@ -95,7 +95,8 @@ func (client Client) ListSnapshots(dataset string, recursive bool, debug bool) (
 }
 
 func parseSnapshots(reader io.Reader, runner Runner, output io.Writer, state *snapshotState) []Snapshot {
-	snapshots := []Snapshot{}
+	var snapshots []Snapshot
+
 	scanner := bufio.NewScanner(reader)
 
 	for scanner.Scan() {
