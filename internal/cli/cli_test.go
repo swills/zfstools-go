@@ -340,6 +340,40 @@ func TestRunAutoSnapshot(t *testing.T) {
 	}
 }
 
+func TestRunAutoSnapshotDryRunReportsMutations(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{snapshotOutput: "tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t10\t1\n"}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(runner, stdout)
+
+	code := runAutoSnapshot(
+		t.Context(), autoSnapshotName, []string{"--dry-run", "daily", "1"},
+		stdout, stderr, "dev", "none", client,
+	)
+	if code != 0 {
+		t.Fatalf("runAutoSnapshot() code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+
+	for _, want := range []string{
+		"zfs snapshot -r tank/data@zfs-auto-snap_daily-",
+		"zfs destroy -d tank/data@zfs-auto-snap_daily-2025-01-01-03h04",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("runAutoSnapshot() stdout = %q, want substring %q", stdout.String(), want)
+		}
+	}
+
+	for _, call := range runner.calls {
+		isZFSMutation := call.name == "zfs" && len(call.args) > 0 &&
+			(call.args[0] == "snapshot" || call.args[0] == "destroy")
+		if isZFSMutation || call.name == "mysql" || call.name == "psql" {
+			t.Errorf("unexpected mutation during dry run: %s %v", call.name, call.args)
+		}
+	}
+}
+
 func TestRunAutoSnapshotReportsCreationFailure(t *testing.T) {
 	t.Parallel()
 
@@ -463,7 +497,7 @@ func TestRunAutoSnapshotReportsDatasetDiscoveryFailure(t *testing.T) {
 	client := zfs.NewClient(runner, stdout)
 
 	code := runAutoSnapshot(
-		t.Context(), autoSnapshotName, []string{"daily", "1"}, stdout, stderr, "dev", "none", client,
+		t.Context(), autoSnapshotName, []string{"--dry-run", "daily", "1"}, stdout, stderr, "dev", "none", client,
 	)
 	if code != 1 {
 		t.Fatalf("runAutoSnapshot() code = %d, want 1", code)
@@ -609,6 +643,33 @@ func TestRunCleanupSnapshots(t *testing.T) {
 	}
 }
 
+func TestRunCleanupSnapshotsDryRunReportsMutations(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(runner, stdout)
+
+	code := runCleanupSnapshots(
+		t.Context(), cleanupName, []string{"--dry-run"}, stdout, stderr, "dev", "none", client,
+	)
+	if code != 0 {
+		t.Fatalf("runCleanupSnapshots() code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+
+	want := "zfs destroy -d tank/data@manual-old"
+	if !strings.Contains(stdout.String(), want) {
+		t.Errorf("runCleanupSnapshots() stdout = %q, want substring %q", stdout.String(), want)
+	}
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			t.Errorf("unexpected mutation during dry run: %s %v", call.name, call.args)
+		}
+	}
+}
+
 func TestRunCleanupSnapshotsReportsDatasetDiscoveryFailure(t *testing.T) {
 	t.Parallel()
 
@@ -617,7 +678,9 @@ func TestRunCleanupSnapshotsReportsDatasetDiscoveryFailure(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	client := zfs.NewClient(runner, stdout)
 
-	code := runCleanupSnapshots(t.Context(), cleanupName, nil, stdout, stderr, "dev", "none", client)
+	code := runCleanupSnapshots(
+		t.Context(), cleanupName, []string{"--dry-run"}, stdout, stderr, "dev", "none", client,
+	)
 	if code != 1 {
 		t.Fatalf("runCleanupSnapshots() code = %d, want 1", code)
 	}
@@ -649,7 +712,9 @@ func TestRunCleanupSnapshotsSkipsUnknownSizes(t *testing.T) {
 	runner.calls = nil
 	runner.mu.Unlock()
 
-	code := runCleanupSnapshots(t.Context(), cleanupName, nil, stdout, stderr, "dev", "none", client)
+	code := runCleanupSnapshots(
+		t.Context(), cleanupName, []string{"--dry-run"}, stdout, stderr, "dev", "none", client,
+	)
 	if code != 1 {
 		t.Fatalf("runCleanupSnapshots() code = %d, want 1", code)
 	}

@@ -53,7 +53,7 @@ func planZeroSizeCleanup(
 }
 
 func (tools Tools) applyZeroSizePlan(ctx context.Context, plan zeroSizePlan, cfg config.Config) error {
-	if cfg.Verbose {
+	if cfg.Verbose && !cfg.DryRun {
 		for _, snapshot := range plan.destroy {
 			_, _ = fmt.Fprintln(tools.output, "Destroying zero-sized snapshot:", snapshot.Name)
 		}
@@ -191,9 +191,15 @@ func (tools Tools) ApplySnapshotRetention(
 
 	var expired []zfs.Snapshot
 
+	keep := cfg.Keep
+	if cfg.DryRun && keep > 0 {
+		// The proposed snapshot is absent from discovery but consumes one retained slot.
+		keep--
+	}
+
 	for _, groupedSnapshots := range grouped {
-		if len(groupedSnapshots) > cfg.Keep {
-			expired = append(expired, groupedSnapshots[cfg.Keep:]...)
+		if len(groupedSnapshots) > keep {
+			expired = append(expired, groupedSnapshots[keep:]...)
 		}
 	}
 

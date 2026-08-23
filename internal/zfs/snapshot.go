@@ -198,7 +198,7 @@ func (client Client) CreateSnapshots(
 
 	switch dbName {
 	case "mysql":
-		err = client.createMySQLSnapshots(ctx, zfsArgs, dryRun, verbose || debug)
+		err = client.createMySQLSnapshots(ctx, zfsArgs, dryRun, dryRun || verbose || debug)
 		if err != nil {
 			return fmt.Errorf("create snapshots %s: %w", strings.Join(targets, ", "), err)
 		}
@@ -206,7 +206,7 @@ func (client Client) CreateSnapshots(
 		return nil
 
 	case "postgresql":
-		err = client.createPostgreSQLSnapshots(ctx, zfsArgs, dryRun, verbose || debug)
+		err = client.createPostgreSQLSnapshots(ctx, zfsArgs, dryRun, dryRun || verbose || debug)
 		if err != nil {
 			return fmt.Errorf("create snapshots %s: %w", strings.Join(targets, ", "), err)
 		}
@@ -214,7 +214,7 @@ func (client Client) CreateSnapshots(
 		return nil
 	}
 
-	if debug || verbose {
+	if dryRun || debug || verbose {
 		_, _ = fmt.Fprintln(client.output, shellCommand("zfs", zfsArgs...))
 	}
 
@@ -546,8 +546,8 @@ func (client Client) getArgMax(ctx context.Context) int {
 func (client Client) DestroySnapshot(ctx context.Context, name string, dryRun, debug bool) error {
 	args := []string{"destroy", "-d", name}
 
-	if debug {
-		_, _ = fmt.Fprintln(client.output, "zfs", strings.Join(args, " "))
+	if dryRun || debug {
+		_, _ = fmt.Fprintln(client.output, shellCommand("zfs", args...))
 	}
 
 	var err error

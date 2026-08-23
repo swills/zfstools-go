@@ -173,6 +173,33 @@ func TestDestroySnapshotsCancellation(t *testing.T) {
 	})
 }
 
+func TestDestroySnapshotsParallelDryRunOutput(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{}
+	output := &bytes.Buffer{}
+	client := zfs.NewClient(runner, output)
+	snapshots := []zfs.Snapshot{{Name: "tank/a@1"}, {Name: "tank/b@1"}, {Name: "tank/c@1"}}
+
+	err := New(client, output).destroySnapshots(
+		t.Context(), snapshots, config.Config{DryRun: true, UseThreads: true},
+	)
+	if err != nil {
+		t.Fatalf("destroySnapshots() error = %v", err)
+	}
+
+	for _, snapshot := range snapshots {
+		want := "zfs destroy -d " + snapshot.Name + "\n"
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("destroySnapshots() output = %q, want %q", output.String(), want)
+		}
+	}
+
+	if len(runner.calls) != 0 {
+		t.Errorf("Run calls = %v, want none", runner.calls)
+	}
+}
+
 func TestDestroyZeroSizedSnapshots(t *testing.T) {
 	t.Parallel()
 
@@ -443,7 +470,7 @@ func TestDestroyZeroSizedSnapshotsVerboseOutput(t *testing.T) {
 		t.Fatalf("planZeroSizeCleanup() error = %v", err)
 	}
 
-	err = New(client, output).applyZeroSizePlan(t.Context(), plan, config.Config{DryRun: true, Verbose: true})
+	err = New(client, output).applyZeroSizePlan(t.Context(), plan, config.Config{Verbose: true})
 	if err != nil {
 		t.Fatalf("applyZeroSizePlan() error = %v", err)
 	}
@@ -647,6 +674,39 @@ func TestApplySnapshotRetention(t *testing.T) {
 	}}
 	if diff := deep.Equal(runner.calls[0], wantList); diff != nil {
 		t.Errorf("list command differs: %v", diff)
+	}
+}
+
+func TestApplySnapshotRetentionDryRunAccountsForProposedSnapshot(t *testing.T) {
+	t.Parallel()
+
+	output := &bytes.Buffer{}
+	runner := &fakeRunner{output: []byte(
+		"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t10\t1\n",
+	)}
+	tools := New(zfs.NewClient(runner, output), output)
+	datasets := map[string][]zfs.Dataset{"included": {{Name: "tank/data"}}}
+
+	err := tools.ApplySnapshotRetention(
+		t.Context(),
+		config.Config{Interval: "daily", Keep: 1, DryRun: true},
+		"tank",
+		datasets,
+		retentionTargets("tank/data"),
+	)
+	if err != nil {
+		t.Fatalf("ApplySnapshotRetention() error = %v", err)
+	}
+
+	want := "zfs destroy -d tank/data@zfs-auto-snap_daily-2025-01-01-03h04\n"
+	if got := output.String(); got != want {
+		t.Errorf("ApplySnapshotRetention() output = %q, want %q", got, want)
+	}
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			t.Errorf("unexpected destroy mutation during dry run: %v", call.args)
+		}
 	}
 }
 
@@ -870,6 +930,10 @@ func TestPruneZeroSizedSnapshotsInspectsSnapshotComponent(t *testing.T) {
 		"tank/zfs-auto-snap_dataset@manual-old",
 		"tank/data@manual-zfs-auto-snap_daily-2025-01-01-03h04",
 	}
+
+	slices.Sort(destroyed)
+	slices.Sort(want)
+
 	if !slices.Equal(destroyed, want) {
 		t.Errorf("destroyed snapshots = %v, want %v", destroyed, want)
 	}

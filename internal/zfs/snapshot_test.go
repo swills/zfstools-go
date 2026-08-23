@@ -6,6 +6,7 @@ import (
 	"io"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/go-test/deep"
@@ -356,7 +357,7 @@ func TestCreateDatabaseSnapshotsDryRunOutput(t *testing.T) {
 
 			err := client.CreateSnapshots(
 				t.Context(),
-				[]string{"pool/database"}, "snap", false, testCase.db, true, true, false,
+				[]string{"pool/database"}, "snap", false, testCase.db, true, false, false,
 			)
 			if err != nil {
 				t.Fatalf("CreateSnapshots() error = %v", err)
@@ -649,6 +650,39 @@ func TestCreateManySnapshotsParallelFallback(t *testing.T) {
 				t.Errorf("commands differ: %v", diff)
 			}
 		})
+	}
+}
+
+func TestCreateManySnapshotsParallelDryRunOutput(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{}
+	output := &bytes.Buffer{}
+	client := NewClient(runner, output)
+	datasets := []Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}, {Name: "pool/fs3"}}
+
+	created, err := client.CreateManySnapshots(
+		t.Context(), "snap", datasets, false, true, false, false, true,
+	)
+	if err != nil {
+		t.Fatalf("CreateManySnapshots() error = %v", err)
+	}
+
+	if len(created) != len(datasets) {
+		t.Errorf("created dataset count = %d, want %d", len(created), len(datasets))
+	}
+
+	for _, dataset := range datasets {
+		want := "zfs snapshot " + dataset.Name + "@snap\n"
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("CreateManySnapshots() output = %q, want %q", output.String(), want)
+		}
+	}
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "snapshot" {
+			t.Errorf("unexpected snapshot mutation during dry run: %v", call.args)
+		}
 	}
 }
 

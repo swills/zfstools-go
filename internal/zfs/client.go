@@ -7,6 +7,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -72,6 +73,18 @@ type snapshotState struct {
 	stale atomic.Bool
 }
 
+type synchronizedWriter struct {
+	writer io.Writer
+	mu     sync.Mutex
+}
+
+func (writer *synchronizedWriter) Write(data []byte) (int, error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+
+	return writer.writer.Write(data) //nolint:wrapcheck // io.Writer errors retain their original context.
+}
+
 type Client struct {
 	runner        Runner
 	output        io.Writer
@@ -82,7 +95,8 @@ type Client struct {
 // NewClient creates a ZFS client using the supplied command runner.
 func NewClient(runner Runner, output io.Writer) Client {
 	return Client{
-		runner: runner, output: output, snapshotState: &snapshotState{}, featureCache: &featureCache{},
+		runner: runner, output: &synchronizedWriter{writer: output},
+		snapshotState: &snapshotState{}, featureCache: &featureCache{},
 	}
 }
 

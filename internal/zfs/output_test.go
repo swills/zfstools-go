@@ -38,14 +38,14 @@ func TestClientDiagnosticOutput(t *testing.T) {
 		{
 			name: "create snapshot",
 			run: func(ctx context.Context, client Client) {
-				_ = client.CreateSnapshots(ctx, []string{"pool/fs"}, "snap", false, "", true, true, false)
+				_ = client.CreateSnapshots(ctx, []string{"pool/fs"}, "snap", false, "", true, false, false)
 			},
 			want: "zfs snapshot pool/fs@snap\n",
 		},
 		{
 			name: "destroy snapshot",
 			run: func(ctx context.Context, client Client) {
-				_ = client.DestroySnapshot(ctx, "pool/fs@snap", true, true)
+				_ = client.DestroySnapshot(ctx, "pool/fs@snap", true, false)
 			},
 			want: "zfs destroy -d pool/fs@snap\n",
 		},
