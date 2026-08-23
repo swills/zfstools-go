@@ -239,8 +239,6 @@ func newFlagSet(name string, stderr io.Writer) *pflag.FlagSet {
 func parse(flags *pflag.FlagSet, args []string) int {
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, pflag.ErrHelp) {
-			flags.Usage()
-
 			return 0
 		}
 

@@ -283,8 +283,8 @@ func TestRunHelp(t *testing.T) {
 				t.Errorf("Run() code = %d, want 0", code)
 			}
 
-			if !strings.Contains(stderr.String(), "Usage:") {
-				t.Errorf("Run() stderr = %q, want usage", stderr.String())
+			if got := strings.Count(stderr.String(), "Usage:"); got != 1 {
+				t.Errorf("Run() usage count = %d, want 1; stderr = %q", got, stderr.String())
 			}
 		})
 	}
