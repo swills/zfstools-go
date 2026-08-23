@@ -3,6 +3,7 @@ package zfs
 import (
 	"errors"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -65,5 +66,20 @@ func TestExecRunnerIncludesStderr(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "command failed") {
 		t.Errorf("Run() error = %q, want stderr", err)
+	}
+}
+
+func TestExecRunnerReportsStartError(t *testing.T) {
+	t.Parallel()
+
+	name := filepath.Join(t.TempDir(), "missing-command")
+
+	err := (execRunner{}).Run(io.Discard, name)
+	if err == nil {
+		t.Fatal("Run() error = nil, want start error")
+	}
+
+	if !strings.Contains(err.Error(), name) {
+		t.Errorf("Run() error = %q, want command name %q", err, name)
 	}
 }

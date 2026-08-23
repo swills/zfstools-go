@@ -1,6 +1,7 @@
 package zfs
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"slices"
@@ -75,6 +76,15 @@ func TestSnapshotGetUsedErrors(t *testing.T) {
 				t.Errorf("GetUsed() = %d, want 0", got)
 			}
 		})
+	}
+}
+
+func TestSnapshotGetUsedUsesCachedValueWithoutClient(t *testing.T) {
+	t.Parallel()
+
+	snapshot := Snapshot{Used: 1024}
+	if got := snapshot.GetUsed(false); got != 1024 {
+		t.Errorf("GetUsed() = %d, want 1024", got)
 	}
 }
 
@@ -262,6 +272,62 @@ func TestCreateSnapshotsCommandError(t *testing.T) {
 		[]string{"pool/fs"}, "snap", false, "", false, false, false,
 	); err == nil {
 		t.Fatal("CreateSnapshots() error = nil, want command error")
+	}
+}
+
+func TestCreateDatabaseSnapshotsDryRunOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		db   string
+		want []string
+	}{
+		{
+			name: "mysql",
+			db:   "mysql",
+			want: []string{"mysql -e", "SYSTEM zfs snapshot pool/database@snap"},
+		},
+		{
+			name: "postgresql",
+			db:   "postgresql",
+			want: []string{"psql -c", "PG_START_BACKUP", "zfs snapshot pool/database@snap", "PG_STOP_BACKUP"},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			runner := &fakeRunner{}
+			output := &bytes.Buffer{}
+			client := NewClient(runner, output)
+
+			err := client.CreateSnapshots(
+				[]string{"pool/database"}, "snap", false, testCase.db, true, true, false,
+			)
+			if err != nil {
+				t.Fatalf("CreateSnapshots() error = %v", err)
+			}
+
+			for _, want := range testCase.want {
+				if !bytes.Contains(output.Bytes(), []byte(want)) {
+					t.Errorf("CreateSnapshots() output = %q, want substring %q", output.String(), want)
+				}
+			}
+
+			if len(runner.calls) != 0 {
+				t.Errorf("Run calls = %d, want 0", len(runner.calls))
+			}
+		})
+	}
+}
+
+func TestShellQuoteEmptyString(t *testing.T) {
+	t.Parallel()
+
+	if got := shellQuote(""); got != "''" {
+		t.Errorf("shellQuote() = %q, want empty shell string", got)
 	}
 }
 

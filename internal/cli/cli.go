@@ -24,13 +24,25 @@ const (
 
 // Run selects a command using the executable name, as required by a multi-call binary.
 func Run(name string, args []string, stdout, stderr io.Writer, version, commit string) int {
+	client := zfs.NewSystemClient(stdout)
+
+	return run(name, args, stdout, stderr, version, commit, client)
+}
+
+func run(
+	name string,
+	args []string,
+	stdout, stderr io.Writer,
+	version, commit string,
+	client zfs.Client,
+) int {
 	switch filepath.Base(name) {
 	case autoSnapshotName:
-		return RunAutoSnapshot(name, args, stdout, stderr, version, commit)
+		return runAutoSnapshot(name, args, stdout, stderr, version, commit, client)
 	case cleanupName:
-		return RunCleanupSnapshots(name, args, stdout, stderr, version, commit)
+		return runCleanupSnapshots(name, args, stdout, stderr, version, commit, client)
 	case mysqlName:
-		return RunSnapshotMySQL(name, args, stdout, stderr, version, commit)
+		return runSnapshotMySQL(name, args, stdout, stderr, version, commit, client)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown command %q (expected %s, %s, or %s)\n",
 			filepath.Base(name), autoSnapshotName, cleanupName, mysqlName)
@@ -39,8 +51,13 @@ func Run(name string, args []string, stdout, stderr io.Writer, version, commit s
 	}
 }
 
-// RunAutoSnapshot runs zfs-auto-snapshot.
-func RunAutoSnapshot(name string, args []string, stdout, stderr io.Writer, version, commit string) int {
+func runAutoSnapshot(
+	name string,
+	args []string,
+	stdout, stderr io.Writer,
+	version, commit string,
+	client zfs.Client,
+) int {
 	var pool string
 
 	var keepZeroSized bool
@@ -92,7 +109,6 @@ func RunAutoSnapshot(name string, args []string, stdout, stderr io.Writer, versi
 
 	cfg.Keep = keep
 
-	client := zfs.NewSystemClient(stdout)
 	tools := zfstools.New(client, stdout)
 
 	datasets := tools.FindEligibleDatasets(cfg, pool)
@@ -132,8 +148,13 @@ func parseKeep(value string) (int, error) {
 	return int(keep), nil
 }
 
-// RunCleanupSnapshots runs zfs-cleanup-snapshots.
-func RunCleanupSnapshots(name string, args []string, stdout, stderr io.Writer, version, commit string) int {
+func runCleanupSnapshots(
+	name string,
+	args []string,
+	stdout, stderr io.Writer,
+	version, commit string,
+	client zfs.Client,
+) int {
 	cfg := config.Config{Timestamp: time.Now()}
 
 	var pool string
@@ -163,7 +184,6 @@ func RunCleanupSnapshots(name string, args []string, stdout, stderr io.Writer, v
 		return 0
 	}
 
-	client := zfs.NewSystemClient(stdout)
 	tools := zfstools.New(client, stdout)
 
 	snapshots, err := client.ListSnapshots(pool, true, cfg.Debug)
@@ -187,8 +207,13 @@ func RunCleanupSnapshots(name string, args []string, stdout, stderr io.Writer, v
 	return 0
 }
 
-// RunSnapshotMySQL runs zfs-snapshot-mysql.
-func RunSnapshotMySQL(name string, args []string, stdout, stderr io.Writer, version, commit string) int {
+func runSnapshotMySQL(
+	name string,
+	args []string,
+	stdout, stderr io.Writer,
+	version, commit string,
+	client zfs.Client,
+) int {
 	var debug, dryRun, verbose bool
 
 	flags := newFlagSet(name, stderr)
@@ -213,8 +238,6 @@ func RunSnapshotMySQL(name string, args []string, stdout, stderr io.Writer, vers
 
 		return 0
 	}
-
-	client := zfs.NewSystemClient(stdout)
 
 	err := client.CreateSnapshots(
 		[]string{flags.Arg(0)}, time.Now().Format("2006-01-02T15:04:05"), true, "mysql",

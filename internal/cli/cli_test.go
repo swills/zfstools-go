@@ -2,10 +2,73 @@ package cli
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+
+	"zfstools-go/internal/zfs"
 )
+
+type fakeRunner struct {
+	datasetOutput string
+	calls         []cleanupCommand
+	mu            sync.Mutex
+	fail          bool
+	failSnapshot  bool
+}
+
+type cleanupCommand struct {
+	name string
+	args []string
+}
+
+var errTestCommand = errors.New("test command failed")
+
+func (runner *fakeRunner) Run(output io.Writer, name string, args ...string) error {
+	runner.mu.Lock()
+	runner.calls = append(runner.calls, cleanupCommand{name: name, args: append([]string(nil), args...)})
+	runner.mu.Unlock()
+
+	if runner.fail {
+		return errTestCommand
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	if runner.failSnapshot && name == "zfs" && args[0] == "snapshot" {
+		return errTestCommand
+	}
+
+	var data string
+
+	switch args[0] {
+	case "get":
+		data = "0\n"
+	case "list":
+		switch {
+		case slices.Contains(args, "snapshot"):
+			data = "tank/data@manual-new\t0\ntank/data@manual-old\t0\n"
+		case runner.datasetOutput != "":
+			data = runner.datasetOutput
+		default:
+			data = "tank/data\tfilesystem\n"
+		}
+	}
+
+	_, err := io.WriteString(output, data)
+	if err != nil {
+		return fmt.Errorf("write fake command output: %w", err)
+	}
+
+	return nil
+}
 
 func TestUsageWriters(t *testing.T) {
 	t.Parallel()
@@ -145,13 +208,15 @@ func TestRunAutoSnapshotRejectsInvalidKeep(t *testing.T) {
 	t.Parallel()
 
 	stderr := &bytes.Buffer{}
-	code := RunAutoSnapshot(
+	client := zfs.NewClient(&fakeRunner{}, io.Discard)
+	code := runAutoSnapshot(
 		autoSnapshotName,
 		[]string{"daily", "10oops"},
 		&bytes.Buffer{},
 		stderr,
 		"dev",
 		"none",
+		client,
 	)
 
 	if code != 2 {
@@ -163,18 +228,73 @@ func TestRunAutoSnapshotRejectsInvalidKeep(t *testing.T) {
 	}
 }
 
+func TestRunAutoSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "keep zero", args: []string{"--keep-zero-sized-snapshots", "daily", "0"}},
+		{name: "keep one", args: []string{"daily", "1"}},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			runner := &fakeRunner{}
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			client := zfs.NewClient(runner, stdout)
+
+			code := runAutoSnapshot(autoSnapshotName, testCase.args, stdout, stderr, "dev", "none", client)
+			if code != 0 {
+				t.Fatalf("runAutoSnapshot() code = %d, want 0; stderr = %q", code, stderr.String())
+			}
+
+			if len(runner.calls) != 2 {
+				t.Errorf("Run calls = %d, want dataset and snapshot listings", len(runner.calls))
+			}
+		})
+	}
+}
+
+func TestRunAutoSnapshotReportsCreationFailure(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{
+		datasetOutput: "tank/data\tfilesystem\tmysql\ttrue\tyes\n",
+		failSnapshot:  true,
+	}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(runner, stdout)
+
+	code := runAutoSnapshot(autoSnapshotName, []string{"daily", "1"}, stdout, stderr, "dev", "none", client)
+	if code != 1 {
+		t.Fatalf("runAutoSnapshot() code = %d, want 1", code)
+	}
+
+	if !strings.Contains(stderr.String(), "Error creating snapshots") {
+		t.Errorf("runAutoSnapshot() stderr = %q, want creation error", stderr.String())
+	}
+}
+
 func TestRunSnapshotMySQLDryRun(t *testing.T) {
 	t.Parallel()
 
 	stdout := &bytes.Buffer{}
+	client := zfs.NewClient(&fakeRunner{}, stdout)
 
-	code := RunSnapshotMySQL(
+	code := runSnapshotMySQL(
 		mysqlName,
 		[]string{"--dry-run", "--verbose", "pool/mysql"},
 		stdout,
 		&bytes.Buffer{},
 		"dev",
 		"none",
+		client,
 	)
 	if code != 0 {
 		t.Fatalf("RunSnapshotMySQL() code = %d, want 0", code)
@@ -213,8 +333,11 @@ func TestRunCleanupSnapshotsOptions(t *testing.T) {
 
 			stdout := &bytes.Buffer{}
 			stderr := &bytes.Buffer{}
+			client := zfs.NewClient(&fakeRunner{}, stdout)
 
-			code := RunCleanupSnapshots(cleanupName, testCase.args, stdout, stderr, "1.2.3", "abc123")
+			code := runCleanupSnapshots(
+				cleanupName, testCase.args, stdout, stderr, "1.2.3", "abc123", client,
+			)
 			if code != 0 {
 				t.Fatalf("RunCleanupSnapshots() code = %d, want 0; stderr = %q", code, stderr.String())
 			}
@@ -223,6 +346,48 @@ func TestRunCleanupSnapshotsOptions(t *testing.T) {
 				t.Errorf("RunCleanupSnapshots() stdout = %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+func TestRunCleanupSnapshots(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(runner, stdout)
+	args := []string{"--debug", "--verbose", "--parallel-snapshots", "--pool", "tank"}
+
+	code := runCleanupSnapshots(cleanupName, args, stdout, stderr, "dev", "none", client)
+	if code != 0 {
+		t.Fatalf("runCleanupSnapshots() code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+
+	runner.mu.Lock()
+	calls := append([]cleanupCommand(nil), runner.calls...)
+	runner.mu.Unlock()
+
+	var destroyed []string
+
+	for _, call := range calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyed = append(destroyed, call.args[len(call.args)-1])
+		}
+	}
+
+	if len(destroyed) != 1 || destroyed[0] != "tank/data@manual-old" {
+		t.Errorf("destroyed snapshots = %v, want tank/data@manual-old", destroyed)
+	}
+
+	for _, want := range []string{
+		"zfs list -r -H -p -t snapshot",
+		"zfs list -H -t filesystem,volume",
+		"Destroying zero-sized snapshot: tank/data@manual-old",
+		"zfs destroy -d tank/data@manual-old",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("runCleanupSnapshots() stdout = %q, want substring %q", stdout.String(), want)
+		}
 	}
 }
 
@@ -287,5 +452,65 @@ func TestRunHelp(t *testing.T) {
 				t.Errorf("Run() usage count = %d, want 1; stderr = %q", got, stderr.String())
 			}
 		})
+	}
+}
+
+func TestRunShowsUsageForInvalidArgumentCounts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{name: "auto missing interval and keep", command: autoSnapshotName},
+		{name: "cleanup unexpected argument", command: cleanupName, args: []string{"unexpected"}},
+		{name: "mysql missing dataset", command: mysqlName},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			stderr := &bytes.Buffer{}
+			code := Run(testCase.command, testCase.args, &bytes.Buffer{}, stderr, "dev", "none")
+
+			if code != 0 {
+				t.Errorf("Run() code = %d, want 0", code)
+			}
+
+			if !strings.Contains(stderr.String(), "Usage:") {
+				t.Errorf("Run() stderr = %q, want usage", stderr.String())
+			}
+		})
+	}
+}
+
+func TestRunCleanupReportsCommandFailure(t *testing.T) {
+	t.Parallel()
+
+	assertCommandFailure(t, cleanupName, nil, "Error listing snapshots")
+}
+
+func TestRunSnapshotMySQLReportsCommandFailure(t *testing.T) {
+	t.Parallel()
+
+	assertCommandFailure(t, mysqlName, []string{"tank/mysql"}, "Error creating snapshot")
+}
+
+func assertCommandFailure(t *testing.T, command string, args []string, want string) {
+	t.Helper()
+
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(&fakeRunner{fail: true}, stdout)
+	code := run(command, args, stdout, stderr, "dev", "none", client)
+
+	if code != 1 {
+		t.Errorf("Run() code = %d, want 1", code)
+	}
+
+	if !strings.Contains(stderr.String(), want) {
+		t.Errorf("Run() stderr = %q, want substring %q", stderr.String(), want)
 	}
 }

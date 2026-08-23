@@ -138,6 +138,7 @@ func TestGroupSnapshotsIntoDatasets(t *testing.T) {
 				snaps: []zfs.Snapshot{
 					{Name: "pool/home@zfs-auto-snap_hourly-2025-01-01-01h00"},
 					{Name: "pool/data@zfs-auto-snap_hourly-2025-01-01-01h00"},
+					{Name: "malformed"},
 				},
 				datasets: []zfs.Dataset{
 					{Name: "pool/home"},
@@ -1823,6 +1824,46 @@ func TestDatasetsDestroyZeroSizedSnapshotsParallel(t *testing.T) {
 
 	if diff := deep.Equal(destroyed, []string{"tank/a@1", "tank/b@1"}); diff != nil {
 		t.Errorf("destroyed snapshots differ: %v", diff)
+	}
+}
+
+func TestCleanupExpiredSnapshots(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{output: []byte(
+		"tank/included@zfs-auto-snap_daily-new\t10\n" +
+			"tank/included@zfs-auto-snap_daily-old\t10\n" +
+			"tank/within-keep@zfs-auto-snap_daily-only\t10\n" +
+			"tank/excluded@zfs-auto-snap_daily-old\t10\n" +
+			"tank/included@manual\t10\n",
+	)}
+	client := zfs.NewClient(runner, io.Discard)
+	tools := New(client, io.Discard)
+	datasets := map[string][]zfs.Dataset{
+		"included": {{Name: "tank/included"}, {Name: "tank/within-keep"}},
+		"excluded": {{Name: "tank/excluded"}},
+	}
+	cfg := config.Config{Interval: "daily", Keep: 1, ShouldDestroyZeroSized: true}
+
+	tools.CleanupExpiredSnapshots(cfg, "tank", datasets)
+
+	var destroyed []string
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyed = append(destroyed, call.args[len(call.args)-1])
+		}
+	}
+
+	if diff := deep.Equal(destroyed, []string{"tank/included@zfs-auto-snap_daily-old"}); diff != nil {
+		t.Errorf("destroyed snapshots differ: %v", diff)
+	}
+
+	wantList := commandCall{name: "zfs", args: []string{
+		"list", "-r", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name", "tank",
+	}}
+	if diff := deep.Equal(runner.calls[0], wantList); diff != nil {
+		t.Errorf("list command differs: %v", diff)
 	}
 }
 
