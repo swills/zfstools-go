@@ -1,6 +1,7 @@
 package zfs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,22 +13,29 @@ import (
 
 // Runner executes external commands used by ZFS operations.
 type Runner interface {
-	Run(name string, args ...string) ([]byte, error)
+	Run(output io.Writer, name string, args ...string) error
 }
 
 type execRunner struct{}
 
-func (execRunner) Run(name string, args ...string) ([]byte, error) {
-	output, err := exec.CommandContext(context.Background(), name, args...).Output()
+func (execRunner) Run(output io.Writer, name string, args ...string) error {
+	cmd := exec.CommandContext(context.Background(), name, args...)
+	cmd.Stdout = output
+
+	var stderr bytes.Buffer
+
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
 	if err != nil {
-		if exitError, ok := errors.AsType[*exec.ExitError](err); ok && len(exitError.Stderr) > 0 {
-			return nil, fmt.Errorf("run %s: %w: %s", name, err, strings.TrimSpace(string(exitError.Stderr)))
+		if exitError, ok := errors.AsType[*exec.ExitError](err); ok && stderr.Len() > 0 {
+			return fmt.Errorf("run %s: %w: %s", name, exitError, strings.TrimSpace(stderr.String()))
 		}
 
-		return nil, fmt.Errorf("run %s: %w", name, err)
+		return fmt.Errorf("run %s: %w", name, err)
 	}
 
-	return output, nil
+	return nil
 }
 
 type snapshotState struct {
@@ -51,4 +59,20 @@ func NewClient(runner Runner, output io.Writer) Client {
 // NewSystemClient creates a ZFS client backed by operating-system commands.
 func NewSystemClient(output io.Writer) Client {
 	return NewClient(execRunner{}, output)
+}
+
+func (client Client) stream(name string, args ...string) (*io.PipeReader, <-chan error) {
+	reader, writer := io.Pipe()
+	done := make(chan error, 1)
+
+	go client.writeStream(writer, done, name, args...)
+
+	return reader, done
+}
+
+func (client Client) writeStream(writer *io.PipeWriter, done chan<- error, name string, args ...string) {
+	err := client.runner.Run(writer, name, args...)
+	_ = writer.Close()
+
+	done <- err
 }

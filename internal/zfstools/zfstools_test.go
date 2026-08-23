@@ -33,21 +33,25 @@ type commandCall struct {
 
 var errTestCommand = errors.New("test command failed")
 
-func (runner *fakeRunner) Run(name string, args ...string) ([]byte, error) {
+func (runner *fakeRunner) Run(destination io.Writer, name string, args ...string) error {
 	runner.mu.Lock()
 	runner.name = name
 
 	runner.args = append([]string(nil), args...)
 	runner.calls = append(runner.calls, commandCall{name: name, args: append([]string(nil), args...)})
 	runFunc := runner.runFunc
-	output := runner.output
+	data := runner.output
 	runner.mu.Unlock()
 
+	var err error
+
 	if runFunc != nil {
-		return runFunc(name, args...)
+		data, err = runFunc(name, args...)
 	}
 
-	return output, nil
+	_, writeErr := destination.Write(data)
+
+	return errors.Join(err, writeErr)
 }
 
 func TestDoNewSnapshots(t *testing.T) {

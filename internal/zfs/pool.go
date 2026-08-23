@@ -2,7 +2,6 @@ package zfs
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"maps"
@@ -38,12 +37,16 @@ func (client Client) ListPools(name string, cmdProps []string, debug bool) ([]Po
 		_, _ = fmt.Fprintln(client.output, line)
 	}
 
-	out, err := client.runner.Run("zpool", args...)
+	reader, done := client.stream("zpool", args...)
+	pools := parsePools(reader)
+	_ = reader.Close()
+
+	err := <-done
 	if err != nil {
 		return nil, fmt.Errorf("zpool get: %w", err)
 	}
 
-	return parsePools(bytes.NewReader(out)), nil
+	return pools, nil
 }
 
 func parsePools(reader io.Reader) []Pool {

@@ -39,12 +39,14 @@ func (s *Snapshot) GetUsed(debug bool) int64 {
 			_, _ = fmt.Fprintln(output, "zfs get -Hp -o value used", s.Name)
 		}
 
-		out, err := runner.Run("zfs", "get", "-Hp", "-o", "value", "used", s.Name)
+		var out bytes.Buffer
+
+		err := runner.Run(&out, "zfs", "get", "-Hp", "-o", "value", "used", s.Name)
 		if err != nil {
 			return 0
 		}
 
-		s.Used, err = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+		s.Used, err = strconv.ParseInt(strings.TrimSpace(out.String()), 10, 64)
 		if err != nil {
 			s.Used = 0
 		}
@@ -80,12 +82,16 @@ func (client Client) ListSnapshots(dataset string, recursive bool, debug bool) (
 		_, _ = fmt.Fprintln(client.output, "zfs", strings.Join(args, " "))
 	}
 
-	out, err := client.runner.Run("zfs", args...)
+	reader, done := client.stream("zfs", args...)
+	snapshots := parseSnapshots(reader, client.runner, client.output, client.snapshotState)
+	_ = reader.Close()
+
+	err := <-done
 	if err != nil {
 		return nil, fmt.Errorf("error listing snapshots: %w", err)
 	}
 
-	return parseSnapshots(bytes.NewReader(out), client.runner, client.output, client.snapshotState), nil
+	return snapshots, nil
 }
 
 func parseSnapshots(reader io.Reader, runner Runner, output io.Writer, state *snapshotState) []Snapshot {
@@ -157,7 +163,7 @@ func (client Client) CreateSnapshots(
 		return nil
 	}
 
-	if _, err = client.runner.Run("zfs", zfsArgs...); err != nil {
+	if err = client.runner.Run(io.Discard, "zfs", zfsArgs...); err != nil {
 		return fmt.Errorf("create snapshots %s: %w", strings.Join(targets, ", "), err)
 	}
 
@@ -201,7 +207,7 @@ func (client Client) createMySQLSnapshots(zfsArgs []string, dryRun, showCommand 
 		return nil
 	}
 
-	if _, err := client.runner.Run("mysql", "-e", sql); err != nil {
+	if err := client.runner.Run(io.Discard, "mysql", "-e", sql); err != nil {
 		return fmt.Errorf("create MySQL snapshots: %w", err)
 	}
 
@@ -224,15 +230,15 @@ func (client Client) createPostgreSQLSnapshots(zfsArgs []string, dryRun, showCom
 
 	var result error
 
-	if _, err := client.runner.Run("psql", startArgs...); err != nil {
+	if err := client.runner.Run(io.Discard, "psql", startArgs...); err != nil {
 		result = errors.Join(result, fmt.Errorf("start PostgreSQL backup: %w", err))
 	}
 
-	if _, err := client.runner.Run("zfs", zfsArgs...); err != nil {
+	if err := client.runner.Run(io.Discard, "zfs", zfsArgs...); err != nil {
 		result = errors.Join(result, fmt.Errorf("create PostgreSQL snapshots: %w", err))
 	}
 
-	if _, err := client.runner.Run("psql", stopArgs...); err != nil {
+	if err := client.runner.Run(io.Discard, "psql", stopArgs...); err != nil {
 		result = errors.Join(result, fmt.Errorf("stop PostgreSQL backup: %w", err))
 	}
 
@@ -416,18 +422,14 @@ func (client Client) createPooledSnapshots(
 }
 
 func (client Client) getArgMax() int {
-	var err error
+	var out bytes.Buffer
 
-	var out []byte
-
-	var val int64
-
-	out, err = client.runner.Run("getconf", "ARG_MAX")
+	err := client.runner.Run(&out, "getconf", "ARG_MAX")
 	if err != nil {
 		return 4096 // conservative fallback
 	}
 
-	val, err = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	val, err := strconv.ParseInt(strings.TrimSpace(out.String()), 10, 64)
 	if err != nil {
 		return 4096
 	}
@@ -448,7 +450,7 @@ func (client Client) DestroySnapshot(name string, dryRun, debug bool) error {
 	var err error
 
 	if !dryRun {
-		_, err = client.runner.Run("zfs", args...)
+		err = client.runner.Run(io.Discard, "zfs", args...)
 		if err != nil {
 			return fmt.Errorf("error destroying snapshot: %w", err)
 		}

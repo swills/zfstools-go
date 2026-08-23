@@ -2,7 +2,6 @@ package zfs
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -27,12 +26,16 @@ func (client Client) ListDatasets(pool string, properties []string, debug bool) 
 		_, _ = fmt.Fprintln(client.output, "zfs "+strings.Join(args, " "))
 	}
 
-	out, err := client.runner.Run("zfs", args...)
+	reader, done := client.stream("zfs", args...)
+	datasets := parseDatasets(reader, properties)
+	_ = reader.Close()
+
+	err := <-done
 	if err != nil {
 		return []Dataset{}
 	}
 
-	return parseDatasets(bytes.NewReader(out), properties)
+	return datasets
 }
 
 func parseDatasets(reader io.Reader, properties []string) []Dataset {
