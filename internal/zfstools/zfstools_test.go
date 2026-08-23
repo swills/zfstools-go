@@ -1427,6 +1427,35 @@ func Test_findRecursiveDatasetsDatabasePropagation(t *testing.T) {
 	}
 }
 
+func Test_findRecursiveDatasetsAncestryBoundaries(t *testing.T) {
+	t.Parallel()
+
+	datasets := map[string][]zfs.Dataset{
+		"included": {
+			{Name: "tank/foo"},
+			{Name: "tank/foo/database", DB: "mysql"},
+			{Name: "tank/foobar"},
+			{Name: "tank/foobar/database", DB: "postgresql"},
+		},
+		"excluded": {
+			{Name: "tank/foobar/excluded"},
+		},
+	}
+	want := map[string][]zfs.Dataset{
+		"single": {
+			{Name: "tank/foobar"},
+		},
+		"recursive": {
+			{Name: "tank/foo", DB: "mysql"},
+			{Name: "tank/foobar/database", DB: "postgresql"},
+		},
+		"included": datasets["included"],
+		"excluded": datasets["excluded"],
+	}
+
+	assertRecursiveDatasets(t, datasets, want)
+}
+
 func assertRecursiveDatasets(t *testing.T, datasets, want map[string][]zfs.Dataset) {
 	t.Helper()
 

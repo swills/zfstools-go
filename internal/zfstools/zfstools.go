@@ -140,7 +140,7 @@ func partitionRecursiveDatasets(
 
 func hasExcludedChild(dataset zfs.Dataset, all []zfs.Dataset, excludedNames map[string]struct{}) bool {
 	for _, child := range all {
-		if !strings.HasPrefix(child.Name, dataset.Name) {
+		if !strings.HasPrefix(child.Name, dataset.Name+"/") {
 			continue
 		}
 
