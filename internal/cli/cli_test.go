@@ -186,3 +186,42 @@ func TestRunSnapshotMySQLDryRun(t *testing.T) {
 		}
 	}
 }
+
+func TestRunCleanupSnapshotsOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "debug short", args: []string{"-d", "--version"}},
+		{name: "debug long", args: []string{"--debug", "--version"}},
+		{name: "dry run short", args: []string{"-n", "--version"}},
+		{name: "dry run long", args: []string{"--dry-run", "--version"}},
+		{name: "parallel short", args: []string{"-p", "--version"}},
+		{name: "parallel long", args: []string{"--parallel-snapshots", "--version"}},
+		{name: "pool short", args: []string{"-P", "tank", "--version"}},
+		{name: "pool long", args: []string{"--pool", "tank", "--version"}},
+		{name: "verbose short", args: []string{"-v", "--version"}},
+		{name: "verbose long", args: []string{"--verbose", "--version"}},
+		{name: "combined short", args: []string{"-dnpv", "--version"}},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+
+			code := RunCleanupSnapshots(cleanupName, testCase.args, stdout, stderr, "1.2.3", "abc123")
+			if code != 0 {
+				t.Fatalf("RunCleanupSnapshots() code = %d, want 0; stderr = %q", code, stderr.String())
+			}
+
+			if got, want := stdout.String(), "1.2.3 (commit abc123)\n"; got != want {
+				t.Errorf("RunCleanupSnapshots() stdout = %q, want %q", got, want)
+			}
+		})
+	}
+}

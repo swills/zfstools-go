@@ -139,11 +139,11 @@ func RunCleanupSnapshots(name string, args []string, stdout, stderr io.Writer, v
 	var pool string
 
 	flags := newFlagSet(name, stderr)
-	flags.BoolVar(&cfg.Debug, "d", false, "")
-	flags.BoolVar(&cfg.DryRun, "n", false, "")
-	flags.BoolVar(&cfg.UseThreads, "p", false, "")
-	flags.StringVar(&pool, "P", "", "")
-	flags.BoolVar(&cfg.Verbose, "v", false, "")
+	flags.BoolVarP(&cfg.Debug, "debug", "d", false, "")
+	flags.BoolVarP(&cfg.DryRun, "dry-run", "n", false, "")
+	flags.BoolVarP(&cfg.UseThreads, "parallel-snapshots", "p", false, "")
+	flags.StringVarP(&pool, "pool", "P", "", "")
+	flags.BoolVarP(&cfg.Verbose, "verbose", "v", false, "")
 	showVersion := flags.BoolP("version", "", false, "Print version information and exit")
 	flags.Usage = func() { writeCleanupUsage(stderr, name) }
 
