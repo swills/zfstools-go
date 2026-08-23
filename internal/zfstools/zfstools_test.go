@@ -2,6 +2,7 @@ package zfstools
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -33,7 +34,7 @@ type commandCall struct {
 
 var errTestCommand = errors.New("test command failed")
 
-func (runner *fakeRunner) Run(destination io.Writer, name string, args ...string) error {
+func (runner *fakeRunner) Run(_ context.Context, destination io.Writer, name string, args ...string) error {
 	runner.mu.Lock()
 	runner.name = name
 
@@ -68,7 +69,7 @@ func TestDoNewSnapshots(t *testing.T) {
 		"single":    {{Name: "pool/fs1"}},
 		"recursive": {{Name: "pool/fs2"}},
 	}
-	if err := tools.DoNewSnapshots(cfg, datasets); err != nil {
+	if err := tools.DoNewSnapshots(t.Context(), cfg, datasets); err != nil {
 		t.Fatalf("DoNewSnapshots() error = %v", err)
 	}
 
@@ -105,7 +106,7 @@ func TestDoNewSnapshotsContinuesAfterError(t *testing.T) {
 		"recursive": {{Name: "pool/fs2"}},
 	}
 
-	err := tools.DoNewSnapshots(cfg, datasets)
+	err := tools.DoNewSnapshots(t.Context(), cfg, datasets)
 	if !errors.Is(err, zfs.ErrOneSnapshotOfManyErrored) {
 		t.Fatalf("DoNewSnapshots() error = %v, want snapshot error", err)
 	}
@@ -755,7 +756,7 @@ func assertFindEligibleDatasets(
 
 	runner := &fakeRunner{output: findEligibleDatasetsOutput(outputName)}
 	client := zfs.NewClient(runner, io.Discard)
-	got := New(client, io.Discard).FindEligibleDatasets(cfg, pool)
+	got := New(client, io.Discard).FindEligibleDatasets(t.Context(), cfg, pool)
 
 	diff := deep.Equal(got, want)
 	if diff != nil {
@@ -1527,7 +1528,7 @@ func Test_snapshotName(t *testing.T) {
 			args: args{
 				cfg: config.Config{
 					Timestamp: time.Date(2025, 05, 05, 17, 45, 0, 0,
-						time.FixedZone("US/Eastern", 0)),
+						time.FixedZone("US/Eastern", -5*60*60)),
 					Interval:       "frequent",
 					SnapshotPrefix: "",
 					UseUTC:         false,
@@ -1540,13 +1541,13 @@ func Test_snapshotName(t *testing.T) {
 			args: args{
 				cfg: config.Config{
 					Timestamp: time.Date(2025, 05, 05, 17, 45, 0, 0,
-						time.FixedZone("US/Eastern", 0)),
+						time.FixedZone("US/Eastern", -5*60*60)),
 					Interval:       "frequent",
 					SnapshotPrefix: "",
 					UseUTC:         true,
 				},
 			},
-			want: "zfs-auto-snap_frequent-2025-05-05-17h45U",
+			want: "zfs-auto-snap_frequent-2025-05-05-22h45U",
 		},
 		{
 			name: "doNotUseUTCTestTimeIsUTC",
@@ -1734,12 +1735,12 @@ func TestDestroyZeroSizedSnapshots(t *testing.T) {
 			runner := &fakeRunner{output: listing.Bytes()}
 			client := zfs.NewClient(runner, io.Discard)
 
-			snapshots, err := client.ListSnapshots("", true, false)
+			snapshots, err := client.ListSnapshots(t.Context(), "", true, false)
 			if err != nil {
 				t.Fatalf("ListSnapshots() error = %v", err)
 			}
 
-			got := New(client, io.Discard).destroyZeroSizedSnapshots(snapshots, testCase.args.cfg)
+			got := New(client, io.Discard).destroyZeroSizedSnapshots(t.Context(), snapshots, testCase.args.cfg)
 			for i := range got {
 				got[i] = zfs.Snapshot{Name: got[i].Name, Used: got[i].Used}
 			}
@@ -1759,12 +1760,14 @@ func TestDestroyZeroSizedSnapshotsVerboseOutput(t *testing.T) {
 	runner := &fakeRunner{output: []byte("tank/a@2\t0\ntank/a@1\t0\n")}
 	client := zfs.NewClient(runner, output)
 
-	snapshots, err := client.ListSnapshots("", true, false)
+	snapshots, err := client.ListSnapshots(t.Context(), "", true, false)
 	if err != nil {
 		t.Fatalf("ListSnapshots() error = %v", err)
 	}
 
-	New(client, output).destroyZeroSizedSnapshots(snapshots, config.Config{DryRun: true, Verbose: true})
+	New(client, output).destroyZeroSizedSnapshots(
+		t.Context(), snapshots, config.Config{DryRun: true, Verbose: true},
+	)
 
 	want := "Destroying zero-sized snapshot: tank/a@1\n"
 	if got := output.String(); got != want {
@@ -1798,14 +1801,14 @@ func TestDatasetsDestroyZeroSizedSnapshotsParallel(t *testing.T) {
 	client := zfs.NewClient(runner, io.Discard)
 	tools := New(client, io.Discard)
 
-	snapshots, err := client.ListSnapshots("", true, false)
+	snapshots, err := client.ListSnapshots(t.Context(), "", true, false)
 	if err != nil {
 		t.Fatalf("ListSnapshots() error = %v", err)
 	}
 
 	grouped := GroupSnapshotsIntoDatasets(snapshots, []zfs.Dataset{{Name: "tank/a"}, {Name: "tank/b"}})
 
-	got := tools.DatasetsDestroyZeroSizedSnapshots(grouped, config.Config{UseThreads: true})
+	got := tools.DatasetsDestroyZeroSizedSnapshots(t.Context(), grouped, config.Config{UseThreads: true})
 	for name, snapshots := range got {
 		if len(snapshots) != 1 || snapshots[0].Name != name+"@2" {
 			t.Errorf("snapshots for %s = %#v, want newest snapshot only", name, snapshots)
@@ -1845,7 +1848,7 @@ func TestCleanupExpiredSnapshots(t *testing.T) {
 	}
 	cfg := config.Config{Interval: "daily", Keep: 1, ShouldDestroyZeroSized: true}
 
-	tools.CleanupExpiredSnapshots(cfg, "tank", datasets)
+	tools.CleanupExpiredSnapshots(t.Context(), cfg, "tank", datasets)
 
 	var destroyed []string
 

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +30,7 @@ type cleanupCommand struct {
 
 var errTestCommand = errors.New("test command failed")
 
-func (runner *fakeRunner) Run(output io.Writer, name string, args ...string) error {
+func (runner *fakeRunner) Run(_ context.Context, output io.Writer, name string, args ...string) error {
 	runner.mu.Lock()
 	runner.calls = append(runner.calls, cleanupCommand{name: name, args: append([]string(nil), args...)})
 	runner.mu.Unlock()
@@ -139,7 +140,7 @@ func TestRunDispatchesByExecutableName(t *testing.T) {
 			stdout := &bytes.Buffer{}
 			stderr := &bytes.Buffer{}
 
-			code := Run("/usr/local/sbin/"+name, []string{"--version"}, stdout, stderr, "1.2.3", "abc123")
+			code := Run(t.Context(), "/usr/local/sbin/"+name, []string{"--version"}, stdout, stderr, "1.2.3", "abc123")
 			if code != 0 {
 				t.Errorf("Run() code = %d, want 0; stderr = %q", code, stderr.String())
 			}
@@ -155,7 +156,7 @@ func TestRunRejectsUnknownExecutableName(t *testing.T) {
 	t.Parallel()
 
 	stderr := &bytes.Buffer{}
-	if code := Run("zfstools", nil, &bytes.Buffer{}, stderr, "dev", "none"); code != 2 {
+	if code := Run(t.Context(), "zfstools", nil, &bytes.Buffer{}, stderr, "dev", "none"); code != 2 {
 		t.Errorf("Run() code = %d, want 2", code)
 	}
 
@@ -210,6 +211,7 @@ func TestRunAutoSnapshotRejectsInvalidKeep(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	client := zfs.NewClient(&fakeRunner{}, io.Discard)
 	code := runAutoSnapshot(
+		t.Context(),
 		autoSnapshotName,
 		[]string{"daily", "10oops"},
 		&bytes.Buffer{},
@@ -248,7 +250,7 @@ func TestRunAutoSnapshot(t *testing.T) {
 			stderr := &bytes.Buffer{}
 			client := zfs.NewClient(runner, stdout)
 
-			code := runAutoSnapshot(autoSnapshotName, testCase.args, stdout, stderr, "dev", "none", client)
+			code := runAutoSnapshot(t.Context(), autoSnapshotName, testCase.args, stdout, stderr, "dev", "none", client)
 			if code != 0 {
 				t.Fatalf("runAutoSnapshot() code = %d, want 0; stderr = %q", code, stderr.String())
 			}
@@ -271,7 +273,9 @@ func TestRunAutoSnapshotReportsCreationFailure(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	client := zfs.NewClient(runner, stdout)
 
-	code := runAutoSnapshot(autoSnapshotName, []string{"daily", "1"}, stdout, stderr, "dev", "none", client)
+	code := runAutoSnapshot(
+		t.Context(), autoSnapshotName, []string{"daily", "1"}, stdout, stderr, "dev", "none", client,
+	)
 	if code != 1 {
 		t.Fatalf("runAutoSnapshot() code = %d, want 1", code)
 	}
@@ -288,6 +292,7 @@ func TestRunSnapshotMySQLDryRun(t *testing.T) {
 	client := zfs.NewClient(&fakeRunner{}, stdout)
 
 	code := runSnapshotMySQL(
+		t.Context(),
 		mysqlName,
 		[]string{"--dry-run", "--verbose", "pool/mysql"},
 		stdout,
@@ -336,7 +341,7 @@ func TestRunCleanupSnapshotsOptions(t *testing.T) {
 			client := zfs.NewClient(&fakeRunner{}, stdout)
 
 			code := runCleanupSnapshots(
-				cleanupName, testCase.args, stdout, stderr, "1.2.3", "abc123", client,
+				t.Context(), cleanupName, testCase.args, stdout, stderr, "1.2.3", "abc123", client,
 			)
 			if code != 0 {
 				t.Fatalf("RunCleanupSnapshots() code = %d, want 0; stderr = %q", code, stderr.String())
@@ -358,7 +363,7 @@ func TestRunCleanupSnapshots(t *testing.T) {
 	client := zfs.NewClient(runner, stdout)
 	args := []string{"--debug", "--verbose", "--parallel-snapshots", "--pool", "tank"}
 
-	code := runCleanupSnapshots(cleanupName, args, stdout, stderr, "dev", "none", client)
+	code := runCleanupSnapshots(t.Context(), cleanupName, args, stdout, stderr, "dev", "none", client)
 	if code != 0 {
 		t.Fatalf("runCleanupSnapshots() code = %d, want 0; stderr = %q", code, stderr.String())
 	}
@@ -420,7 +425,7 @@ func TestRunReportsParseErrors(t *testing.T) {
 
 			stderr := &bytes.Buffer{}
 
-			code := Run(testCase.command, testCase.args, &bytes.Buffer{}, stderr, "dev", "none")
+			code := Run(t.Context(), testCase.command, testCase.args, &bytes.Buffer{}, stderr, "dev", "none")
 			if code != 2 {
 				t.Errorf("Run() code = %d, want 2", code)
 			}
@@ -443,7 +448,7 @@ func TestRunHelp(t *testing.T) {
 
 			stderr := &bytes.Buffer{}
 
-			code := Run(command, []string{"--help"}, &bytes.Buffer{}, stderr, "dev", "none")
+			code := Run(t.Context(), command, []string{"--help"}, &bytes.Buffer{}, stderr, "dev", "none")
 			if code != 0 {
 				t.Errorf("Run() code = %d, want 0", code)
 			}
@@ -473,7 +478,7 @@ func TestRunShowsUsageForInvalidArgumentCounts(t *testing.T) {
 			t.Parallel()
 
 			stderr := &bytes.Buffer{}
-			code := Run(testCase.command, testCase.args, &bytes.Buffer{}, stderr, "dev", "none")
+			code := Run(t.Context(), testCase.command, testCase.args, &bytes.Buffer{}, stderr, "dev", "none")
 
 			if code != 0 {
 				t.Errorf("Run() code = %d, want 0", code)
@@ -504,7 +509,7 @@ func assertCommandFailure(t *testing.T, command string, args []string, want stri
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	client := zfs.NewClient(&fakeRunner{fail: true}, stdout)
-	code := run(command, args, stdout, stderr, "dev", "none", client)
+	code := run(t.Context(), command, args, stdout, stderr, "dev", "none", client)
 
 	if code != 1 {
 		t.Errorf("Run() code = %d, want 1", code)

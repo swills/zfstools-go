@@ -1,7 +1,9 @@
 package zfs
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -24,7 +26,13 @@ type fakeRunner struct {
 	mu      sync.Mutex
 }
 
-func (runner *fakeRunner) Run(output io.Writer, name string, args ...string) error {
+type canceledRunner struct{}
+
+func (canceledRunner) Run(ctx context.Context, _ io.Writer, _ string, _ ...string) error {
+	return fmt.Errorf("run canceled command: %w", ctx.Err())
+}
+
+func (runner *fakeRunner) Run(_ context.Context, output io.Writer, name string, args ...string) error {
 	runner.mu.Lock()
 	runner.calls = append(runner.calls, commandCall{name: name, args: append([]string(nil), args...)})
 	data := runner.output
@@ -46,7 +54,7 @@ func TestExecRunnerWritesStdout(t *testing.T) {
 
 	var output strings.Builder
 
-	err := (execRunner{}).Run(&output, "sh", "-c", "printf command-output")
+	err := (execRunner{}).Run(t.Context(), &output, "sh", "-c", "printf command-output")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -59,7 +67,7 @@ func TestExecRunnerWritesStdout(t *testing.T) {
 func TestExecRunnerIncludesStderr(t *testing.T) {
 	t.Parallel()
 
-	err := (execRunner{}).Run(io.Discard, "sh", "-c", "echo command failed >&2; exit 1")
+	err := (execRunner{}).Run(t.Context(), io.Discard, "sh", "-c", "echo command failed >&2; exit 1")
 	if err == nil {
 		t.Fatal("Run() error = nil, want command error")
 	}
@@ -74,12 +82,24 @@ func TestExecRunnerReportsStartError(t *testing.T) {
 
 	name := filepath.Join(t.TempDir(), "missing-command")
 
-	err := (execRunner{}).Run(io.Discard, name)
+	err := (execRunner{}).Run(t.Context(), io.Discard, name)
 	if err == nil {
 		t.Fatal("Run() error = nil, want start error")
 	}
 
 	if !strings.Contains(err.Error(), name) {
 		t.Errorf("Run() error = %q, want command name %q", err, name)
+	}
+}
+
+func TestClientForwardsContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := NewClient(canceledRunner{}, io.Discard).ListSnapshots(ctx, "", false, false)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("ListSnapshots() error = %v, want context cancellation", err)
 	}
 }

@@ -35,7 +35,7 @@ func TestSnapshotGetUsed(t *testing.T) {
 			localRunner := &fakeRunner{output: runner.output}
 			snapshot := Snapshot{Name: "pool/fs@snap", Used: testCase.used, runner: localRunner, state: localState}
 
-			if got := snapshot.GetUsed(false); got != testCase.want {
+			if got := snapshot.GetUsed(t.Context(), false); got != testCase.want {
 				t.Errorf("GetUsed() = %d, want %d", got, testCase.want)
 			}
 
@@ -72,7 +72,7 @@ func TestSnapshotGetUsedErrors(t *testing.T) {
 			runner := &fakeRunner{output: []byte(testCase.output), err: testCase.err}
 
 			snapshot := Snapshot{Name: "pool/fs@snap", runner: runner, state: &snapshotState{}}
-			if got := snapshot.GetUsed(false); got != 0 {
+			if got := snapshot.GetUsed(t.Context(), false); got != 0 {
 				t.Errorf("GetUsed() = %d, want 0", got)
 			}
 		})
@@ -83,7 +83,7 @@ func TestSnapshotGetUsedUsesCachedValueWithoutClient(t *testing.T) {
 	t.Parallel()
 
 	snapshot := Snapshot{Used: 1024}
-	if got := snapshot.GetUsed(false); got != 1024 {
+	if got := snapshot.GetUsed(t.Context(), false); got != 1024 {
 		t.Errorf("GetUsed() = %d, want 1024", got)
 	}
 }
@@ -94,7 +94,7 @@ func TestSnapshotIsZero(t *testing.T) {
 	runner := &fakeRunner{output: []byte("0\n")}
 
 	snapshot := Snapshot{Name: "pool/fs@snap", runner: runner, state: &snapshotState{}}
-	if !snapshot.IsZero(false) {
+	if !snapshot.IsZero(t.Context(), false) {
 		t.Fatal("IsZero() = false, want true")
 	}
 }
@@ -144,7 +144,9 @@ func TestListSnapshots(t *testing.T) {
 
 			runner := &fakeRunner{output: []byte(testCase.output)}
 
-			got, err := NewClient(runner, io.Discard).ListSnapshots(testCase.dataset, testCase.recursive, false)
+			got, err := NewClient(runner, io.Discard).ListSnapshots(
+				t.Context(), testCase.dataset, testCase.recursive, false,
+			)
 			if err != nil {
 				t.Fatalf("ListSnapshots() error = %v", err)
 			}
@@ -170,7 +172,7 @@ func TestListSnapshotsCommandError(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeRunner{err: errTestCommand}
-	if _, err := NewClient(runner, io.Discard).ListSnapshots("", false, false); err == nil {
+	if _, err := NewClient(runner, io.Discard).ListSnapshots(t.Context(), "", false, false); err == nil {
 		t.Fatal("ListSnapshots() error = nil, want command error")
 	}
 }
@@ -250,6 +252,7 @@ func TestCreateSnapshots(t *testing.T) {
 			client := NewClient(runner, io.Discard)
 
 			err := client.CreateSnapshots(
+				t.Context(),
 				testCase.datasetNames, testCase.snapshotName, testCase.recursive, testCase.database,
 				testCase.dryRun, false, false,
 			)
@@ -269,6 +272,7 @@ func TestCreateSnapshotsCommandError(t *testing.T) {
 
 	runner := &fakeRunner{err: errTestCommand}
 	if err := NewClient(runner, io.Discard).CreateSnapshots(
+		t.Context(),
 		[]string{"pool/fs"}, "snap", false, "", false, false, false,
 	); err == nil {
 		t.Fatal("CreateSnapshots() error = nil, want command error")
@@ -304,6 +308,7 @@ func TestCreateDatabaseSnapshotsDryRunOutput(t *testing.T) {
 			client := NewClient(runner, output)
 
 			err := client.CreateSnapshots(
+				t.Context(),
 				[]string{"pool/database"}, "snap", false, testCase.db, true, true, false,
 			)
 			if err != nil {
@@ -337,6 +342,7 @@ func TestCreatePostgreSQLSnapshotsAttemptsStopAfterErrors(t *testing.T) {
 	runner := &fakeRunner{err: errTestCommand}
 
 	err := NewClient(runner, io.Discard).CreateSnapshots(
+		t.Context(),
 		[]string{"pool/postgres"}, "snap", false, "postgresql", false, false, false,
 	)
 	if !errors.Is(err, errTestCommand) {
@@ -368,7 +374,7 @@ func TestCreateManySnapshots(t *testing.T) {
 		}}
 		client := NewClient(runner, io.Discard)
 
-		err := client.CreateManySnapshots("auto",
+		err := client.CreateManySnapshots(t.Context(), "auto",
 			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
 		if err != nil {
 			t.Fatalf("createManySnapshots() error = %v", err)
@@ -393,7 +399,7 @@ func TestCreateManySnapshots(t *testing.T) {
 		runner := &fakeRunner{}
 		client := NewClient(runner, io.Discard)
 
-		err := client.CreateManySnapshots("auto",
+		err := client.CreateManySnapshots(t.Context(), "auto",
 			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
 		if err != nil {
 			t.Fatalf("createManySnapshots() error = %v", err)
@@ -423,7 +429,7 @@ func TestCreateManySnapshots(t *testing.T) {
 		}}
 		client := NewClient(runner, io.Discard)
 
-		err := client.CreateManySnapshots("auto",
+		err := client.CreateManySnapshots(t.Context(), "auto",
 			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
 		if !errors.Is(err, ErrOneSnapshotOfManyErrored) {
 			t.Fatalf("createManySnapshots() error = %v, want %v", err, ErrOneSnapshotOfManyErrored)
@@ -438,6 +444,7 @@ func TestCreateManySnapshotsDatabaseDataset(t *testing.T) {
 	client := NewClient(runner, io.Discard)
 
 	err := client.CreateManySnapshots(
+		t.Context(),
 		"auto", []Dataset{{Name: "pool/mysql", DB: "mysql"}}, false, false, false, false, false,
 	)
 	if err != nil {
@@ -465,7 +472,7 @@ func TestCreateManySnapshotsMixedDatasetsContinueAfterError(t *testing.T) {
 	}}
 	client := NewClient(runner, io.Discard)
 
-	err := client.CreateManySnapshots("auto", []Dataset{
+	err := client.CreateManySnapshots(t.Context(), "auto", []Dataset{
 		{Name: "pool/mysql", DB: "mysql"},
 		{Name: "pool/files"},
 	}, false, false, false, false, false)
@@ -507,7 +514,7 @@ func TestCreateManySnapshotsParallelFallback(t *testing.T) {
 			}}
 			client := NewClient(runner, io.Discard)
 
-			err := client.CreateManySnapshots("auto", []Dataset{
+			err := client.CreateManySnapshots(t.Context(), "auto", []Dataset{
 				{Name: "pool/fs1"}, {Name: "pool/fs2"}, {Name: "pool/fs3"},
 			}, false, false, false, false, true)
 			if (err != nil) != testCase.wantErr {
@@ -553,7 +560,7 @@ func TestCreateManySnapshotsMinimumChunkSize(t *testing.T) {
 	}}
 	client := NewClient(runner, io.Discard)
 
-	err := client.CreateManySnapshots("auto", []Dataset{
+	err := client.CreateManySnapshots(t.Context(), "auto", []Dataset{
 		{Name: "pool/fs1"}, {Name: "pool/fs2"},
 	}, false, false, false, false, false)
 	if err != nil {
@@ -601,7 +608,7 @@ func TestCreateManySnapshotsValidation(t *testing.T) {
 
 			client := NewClient(&fakeRunner{}, io.Discard)
 
-			err := client.CreateManySnapshots(testCase.snapshot,
+			err := client.CreateManySnapshots(t.Context(), testCase.snapshot,
 				testCase.datasets, false, false, false, false, false)
 			if !errors.Is(err, testCase.want) {
 				t.Errorf("createManySnapshots() error = %v, want %v", err, testCase.want)
@@ -629,7 +636,7 @@ func TestGetArgMax(t *testing.T) {
 			t.Parallel()
 
 			runner := &fakeRunner{output: []byte(testCase.output), err: testCase.err}
-			if got := NewClient(runner, io.Discard).getArgMax(); got != testCase.want {
+			if got := NewClient(runner, io.Discard).getArgMax(t.Context()); got != testCase.want {
 				t.Errorf("getArgMax() = %d, want %d", got, testCase.want)
 			}
 
@@ -659,16 +666,16 @@ func TestDestroySnapshotInvalidatesClientSnapshots(t *testing.T) {
 	}
 	client := NewClient(runner, io.Discard)
 
-	snapshots, err := client.ListSnapshots("", false, false)
+	snapshots, err := client.ListSnapshots(t.Context(), "", false, false)
 	if err != nil {
 		t.Fatalf("ListSnapshots() error = %v", err)
 	}
 
-	if err := client.DestroySnapshot("pool/fs@old", false, false); err != nil {
+	if err := client.DestroySnapshot(t.Context(), "pool/fs@old", false, false); err != nil {
 		t.Fatalf("DestroySnapshot() error = %v", err)
 	}
 
-	if got := snapshots[0].GetUsed(false); got != 4096 {
+	if got := snapshots[0].GetUsed(t.Context(), false); got != 4096 {
 		t.Errorf("GetUsed() after destroy = %d, want 4096", got)
 	}
 
@@ -685,7 +692,9 @@ func TestDestroySnapshotErrorAndDryRun(t *testing.T) {
 		t.Parallel()
 
 		runner := &fakeRunner{err: errTestCommand}
-		if err := NewClient(runner, io.Discard).DestroySnapshot("pool/fs@snap", false, false); err == nil {
+		if err := NewClient(runner, io.Discard).DestroySnapshot(
+			t.Context(), "pool/fs@snap", false, false,
+		); err == nil {
 			t.Fatal("DestroySnapshot() error = nil, want command error")
 		}
 	})
@@ -696,7 +705,7 @@ func TestDestroySnapshotErrorAndDryRun(t *testing.T) {
 		runner := &fakeRunner{}
 
 		client := NewClient(runner, io.Discard)
-		if err := client.DestroySnapshot("pool/fs@snap", true, false); err != nil {
+		if err := client.DestroySnapshot(t.Context(), "pool/fs@snap", true, false); err != nil {
 			t.Fatalf("DestroySnapshot() error = %v", err)
 		}
 

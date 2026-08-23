@@ -53,7 +53,7 @@ func TestListPools(t *testing.T) {
 
 			runner := &fakeRunner{output: []byte(testCase.output)}
 
-			got, err := NewClient(runner, io.Discard).ListPools(testCase.pool, testCase.props, false)
+			got, err := NewClient(runner, io.Discard).ListPools(t.Context(), testCase.pool, testCase.props, false)
 			if err != nil {
 				t.Fatalf("ListPools() error = %v", err)
 			}
@@ -74,7 +74,7 @@ func TestListPoolsCommandError(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeRunner{err: errTestCommand}
-	if _, err := NewClient(runner, io.Discard).ListPools("", nil, false); err == nil {
+	if _, err := NewClient(runner, io.Discard).ListPools(t.Context(), "", nil, false); err == nil {
 		t.Fatal("ListPools() error = nil, want command error")
 	}
 }

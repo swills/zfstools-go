@@ -1,6 +1,9 @@
 package zfs
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 type featureCache struct {
 	mutex            sync.Mutex
@@ -8,20 +11,20 @@ type featureCache struct {
 	bookmarksChecked bool
 }
 
-func (client Client) hasBookmarks(debug bool) bool {
+func (client Client) hasBookmarks(ctx context.Context, debug bool) bool {
 	client.featureCache.mutex.Lock()
 	defer client.featureCache.mutex.Unlock()
 
 	if !client.featureCache.bookmarksChecked {
-		client.featureCache.haveBookmarks = client.checkBookmarks(debug)
+		client.featureCache.haveBookmarks = client.checkBookmarks(ctx, debug)
 		client.featureCache.bookmarksChecked = true
 	}
 
 	return client.featureCache.haveBookmarks
 }
 
-func (client Client) checkBookmarks(debug bool) bool {
-	pools, err := client.ListPools("", []string{"feature@bookmarks"}, debug)
+func (client Client) checkBookmarks(ctx context.Context, debug bool) bool {
+	pools, err := client.ListPools(ctx, "", []string{"feature@bookmarks"}, debug)
 	if err != nil {
 		return false
 	}

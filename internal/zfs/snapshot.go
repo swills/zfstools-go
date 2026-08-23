@@ -3,6 +3,7 @@ package zfs
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -27,7 +28,7 @@ type Snapshot struct {
 }
 
 // GetUsed returns the used size of the snapshot (refreshes if stale)
-func (s *Snapshot) GetUsed(debug bool) int64 {
+func (s *Snapshot) GetUsed(ctx context.Context, debug bool) int64 {
 	runner, output, state := s.runner, s.output, s.state
 	if runner == nil {
 		client := NewSystemClient(io.Discard)
@@ -41,7 +42,7 @@ func (s *Snapshot) GetUsed(debug bool) int64 {
 
 		var out bytes.Buffer
 
-		err := runner.Run(&out, "zfs", "get", "-Hp", "-o", "value", "used", s.Name)
+		err := runner.Run(ctx, &out, "zfs", "get", "-Hp", "-o", "value", "used", s.Name)
 		if err != nil {
 			return 0
 		}
@@ -56,12 +57,17 @@ func (s *Snapshot) GetUsed(debug bool) int64 {
 }
 
 // IsZero reports if the snapshot is effectively empty
-func (s *Snapshot) IsZero(debug bool) bool {
-	return s.GetUsed(debug) == 0
+func (s *Snapshot) IsZero(ctx context.Context, debug bool) bool {
+	return s.GetUsed(ctx, debug) == 0
 }
 
 // ListSnapshots returns snapshots using the client's command runner.
-func (client Client) ListSnapshots(dataset string, recursive bool, debug bool) ([]Snapshot, error) {
+func (client Client) ListSnapshots(
+	ctx context.Context,
+	dataset string,
+	recursive bool,
+	debug bool,
+) ([]Snapshot, error) {
 	args := []string{"list"}
 
 	if dataset != "" && !recursive {
@@ -82,7 +88,7 @@ func (client Client) ListSnapshots(dataset string, recursive bool, debug bool) (
 		_, _ = fmt.Fprintln(client.output, "zfs", strings.Join(args, " "))
 	}
 
-	reader, done := client.stream("zfs", args...)
+	reader, done := client.stream(ctx, "zfs", args...)
 	snapshots := parseSnapshots(reader, client.runner, client.output, client.snapshotState)
 	_ = reader.Close()
 
@@ -120,6 +126,7 @@ func parseSnapshots(reader io.Reader, runner Runner, output io.Writer, state *sn
 
 // CreateSnapshots creates snapshots using the client's command runner.
 func (client Client) CreateSnapshots(
+	ctx context.Context,
 	datasetNames []string,
 	snapshotName string,
 	recursive bool,
@@ -140,7 +147,7 @@ func (client Client) CreateSnapshots(
 
 	switch dbName {
 	case "mysql":
-		err = client.createMySQLSnapshots(zfsArgs, dryRun, verbose || debug)
+		err = client.createMySQLSnapshots(ctx, zfsArgs, dryRun, verbose || debug)
 		if err != nil {
 			return fmt.Errorf("create snapshots %s: %w", strings.Join(targets, ", "), err)
 		}
@@ -148,7 +155,7 @@ func (client Client) CreateSnapshots(
 		return nil
 
 	case "postgresql":
-		err = client.createPostgreSQLSnapshots(zfsArgs, dryRun, verbose || debug)
+		err = client.createPostgreSQLSnapshots(ctx, zfsArgs, dryRun, verbose || debug)
 		if err != nil {
 			return fmt.Errorf("create snapshots %s: %w", strings.Join(targets, ", "), err)
 		}
@@ -164,7 +171,7 @@ func (client Client) CreateSnapshots(
 		return nil
 	}
 
-	if err = client.runner.Run(io.Discard, "zfs", zfsArgs...); err != nil {
+	if err = client.runner.Run(ctx, io.Discard, "zfs", zfsArgs...); err != nil {
 		return fmt.Errorf("create snapshots %s: %w", strings.Join(targets, ", "), err)
 	}
 
@@ -196,7 +203,11 @@ func buildSnapshotTargets(datasetNames []string, snapshotName string) ([]string,
 	return targets, nil
 }
 
-func (client Client) createMySQLSnapshots(zfsArgs []string, dryRun, showCommand bool) error {
+func (client Client) createMySQLSnapshots(
+	ctx context.Context,
+	zfsArgs []string,
+	dryRun, showCommand bool,
+) error {
 	sql := "FLUSH LOGS; FLUSH TABLES WITH READ LOCK; SYSTEM " + shellCommand("zfs", zfsArgs...) +
 		"; UNLOCK TABLES;"
 
@@ -208,14 +219,18 @@ func (client Client) createMySQLSnapshots(zfsArgs []string, dryRun, showCommand 
 		return nil
 	}
 
-	if err := client.runner.Run(io.Discard, "mysql", "-e", sql); err != nil {
+	if err := client.runner.Run(ctx, io.Discard, "mysql", "-e", sql); err != nil {
 		return fmt.Errorf("create MySQL snapshots: %w", err)
 	}
 
 	return nil
 }
 
-func (client Client) createPostgreSQLSnapshots(zfsArgs []string, dryRun, showCommand bool) error {
+func (client Client) createPostgreSQLSnapshots(
+	ctx context.Context,
+	zfsArgs []string,
+	dryRun, showCommand bool,
+) error {
 	startArgs := []string{"-c", "SELECT PG_START_BACKUP('zfs-auto-snapshot');", "postgres"}
 	stopArgs := []string{"-c", "SELECT PG_STOP_BACKUP();", "postgres"}
 
@@ -231,15 +246,15 @@ func (client Client) createPostgreSQLSnapshots(zfsArgs []string, dryRun, showCom
 
 	var result error
 
-	if err := client.runner.Run(io.Discard, "psql", startArgs...); err != nil {
+	if err := client.runner.Run(ctx, io.Discard, "psql", startArgs...); err != nil {
 		result = errors.Join(result, fmt.Errorf("start PostgreSQL backup: %w", err))
 	}
 
-	if err := client.runner.Run(io.Discard, "zfs", zfsArgs...); err != nil {
+	if err := client.runner.Run(ctx, io.Discard, "zfs", zfsArgs...); err != nil {
 		result = errors.Join(result, fmt.Errorf("create PostgreSQL snapshots: %w", err))
 	}
 
-	if err := client.runner.Run(io.Discard, "psql", stopArgs...); err != nil {
+	if err := client.runner.Run(ctx, io.Discard, "psql", stopArgs...); err != nil {
 		result = errors.Join(result, fmt.Errorf("stop PostgreSQL backup: %w", err))
 	}
 
@@ -281,6 +296,7 @@ type createOptions struct {
 
 // CreateManySnapshots creates snapshots using the client's command runner.
 func (client Client) CreateManySnapshots(
+	ctx context.Context,
 	snapshotName string,
 	datasets []Dataset,
 	recursive bool,
@@ -294,13 +310,13 @@ func (client Client) CreateManySnapshots(
 		recursive: recursive, dryRun: dryRun, verbose: verbose, debug: debug, useThreads: useThreads,
 	}
 	dbDatasets, regularDatasets := partitionDatasets(datasets)
-	result := client.createIndividualSnapshots(snapshotName, dbDatasets, options)
+	result := client.createIndividualSnapshots(ctx, snapshotName, dbDatasets, options)
 
 	if len(regularDatasets) > 0 {
-		if client.hasBookmarks(debug) {
-			result = errors.Join(result, client.createPooledSnapshots(snapshotName, regularDatasets, options))
+		if client.hasBookmarks(ctx, debug) {
+			result = errors.Join(result, client.createPooledSnapshots(ctx, snapshotName, regularDatasets, options))
 		} else {
-			result = errors.Join(result, client.createIndividualSnapshots(snapshotName, regularDatasets, options))
+			result = errors.Join(result, client.createIndividualSnapshots(ctx, snapshotName, regularDatasets, options))
 		}
 	}
 
@@ -348,6 +364,7 @@ func partitionDatasets(datasets []Dataset) ([]Dataset, []Dataset) {
 }
 
 func (client Client) createIndividualSnapshots(
+	ctx context.Context,
 	snapshotName string,
 	datasets []Dataset,
 	options createOptions,
@@ -357,6 +374,7 @@ func (client Client) createIndividualSnapshots(
 
 		for _, dataset := range datasets {
 			err := client.CreateSnapshots(
+				ctx,
 				[]string{dataset.Name}, snapshotName, options.recursive, dataset.DB,
 				options.dryRun, options.verbose, options.debug,
 			)
@@ -370,6 +388,7 @@ func (client Client) createIndividualSnapshots(
 	for _, dataset := range datasets {
 		go func() {
 			results <- client.CreateSnapshots(
+				ctx,
 				[]string{dataset.Name}, snapshotName, options.recursive, dataset.DB,
 				options.dryRun, options.verbose, options.debug,
 			)
@@ -386,6 +405,7 @@ func (client Client) createIndividualSnapshots(
 }
 
 func (client Client) createPooledSnapshots(
+	ctx context.Context,
 	snapshotName string,
 	datasets []Dataset,
 	options createOptions,
@@ -403,7 +423,7 @@ func (client Client) createPooledSnapshots(
 		}
 	}
 
-	available := max(client.getArgMax()-1024, 1)
+	available := max(client.getArgMax(ctx)-1024, 1)
 	chunkSize := max(available/maxTargetLength, 1)
 
 	var result error
@@ -412,6 +432,7 @@ func (client Client) createPooledSnapshots(
 		for index := 0; index < len(datasetNames); index += chunkSize {
 			end := min(index+chunkSize, len(datasetNames))
 			err := client.CreateSnapshots(
+				ctx,
 				datasetNames[index:end], snapshotName, options.recursive, "",
 				options.dryRun, options.verbose, options.debug,
 			)
@@ -422,10 +443,10 @@ func (client Client) createPooledSnapshots(
 	return result
 }
 
-func (client Client) getArgMax() int {
+func (client Client) getArgMax(ctx context.Context) int {
 	var out bytes.Buffer
 
-	err := client.runner.Run(&out, "getconf", "ARG_MAX")
+	err := client.runner.Run(ctx, &out, "getconf", "ARG_MAX")
 	if err != nil {
 		return 4096 // conservative fallback
 	}
@@ -439,7 +460,7 @@ func (client Client) getArgMax() int {
 }
 
 // DestroySnapshot destroys a snapshot using the client's command runner.
-func (client Client) DestroySnapshot(name string, dryRun, debug bool) error {
+func (client Client) DestroySnapshot(ctx context.Context, name string, dryRun, debug bool) error {
 	client.snapshotState.stale.Store(true)
 
 	args := []string{"destroy", "-d", name}
@@ -451,7 +472,7 @@ func (client Client) DestroySnapshot(name string, dryRun, debug bool) error {
 	var err error
 
 	if !dryRun {
-		err = client.runner.Run(io.Discard, "zfs", args...)
+		err = client.runner.Run(ctx, io.Discard, "zfs", args...)
 		if err != nil {
 			return fmt.Errorf("error destroying snapshot: %w", err)
 		}

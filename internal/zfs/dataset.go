@@ -2,6 +2,7 @@ package zfs
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -14,7 +15,7 @@ type Dataset struct {
 }
 
 // ListDatasets returns a list of ZFS datasets using the client's command executor.
-func (client Client) ListDatasets(pool string, properties []string, debug bool) []Dataset {
+func (client Client) ListDatasets(ctx context.Context, pool string, properties []string, debug bool) []Dataset {
 	cmdProperties := append([]string{"name", "type"}, properties...)
 
 	args := []string{"list", "-H", "-t", "filesystem,volume", "-o", strings.Join(cmdProperties, ","), "-s", "name"}
@@ -26,7 +27,7 @@ func (client Client) ListDatasets(pool string, properties []string, debug bool) 
 		_, _ = fmt.Fprintln(client.output, "zfs "+strings.Join(args, " "))
 	}
 
-	reader, done := client.stream("zfs", args...)
+	reader, done := client.stream(ctx, "zfs", args...)
 	datasets := parseDatasets(reader, properties)
 	_ = reader.Close()
 

@@ -13,13 +13,13 @@ import (
 
 // Runner executes external commands used by ZFS operations.
 type Runner interface {
-	Run(output io.Writer, name string, args ...string) error
+	Run(ctx context.Context, output io.Writer, name string, args ...string) error
 }
 
 type execRunner struct{}
 
-func (execRunner) Run(output io.Writer, name string, args ...string) error {
-	cmd := exec.CommandContext(context.Background(), name, args...)
+func (execRunner) Run(ctx context.Context, output io.Writer, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout = output
 
 	var stderr bytes.Buffer
@@ -61,17 +61,23 @@ func NewSystemClient(output io.Writer) Client {
 	return NewClient(execRunner{}, output)
 }
 
-func (client Client) stream(name string, args ...string) (*io.PipeReader, <-chan error) {
+func (client Client) stream(ctx context.Context, name string, args ...string) (*io.PipeReader, <-chan error) {
 	reader, writer := io.Pipe()
 	done := make(chan error, 1)
 
-	go client.writeStream(writer, done, name, args...)
+	go client.writeStream(ctx, writer, done, name, args...)
 
 	return reader, done
 }
 
-func (client Client) writeStream(writer *io.PipeWriter, done chan<- error, name string, args ...string) {
-	err := client.runner.Run(writer, name, args...)
+func (client Client) writeStream(
+	ctx context.Context,
+	writer *io.PipeWriter,
+	done chan<- error,
+	name string,
+	args ...string,
+) {
+	err := client.runner.Run(ctx, writer, name, args...)
 	_ = writer.Close()
 
 	done <- err

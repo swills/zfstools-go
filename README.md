@@ -83,6 +83,10 @@ Usage: /usr/local/sbin/zfs-snapshot-mysql [-dnv] DATASET
     -v              Show what is being done.
 ```
 
+## Future Work
+
+- Evaluate Lua-based ZFS Channel Programs (ZCP) for atomic ZFS-side operations.
+
 ---
 
 ## Credits

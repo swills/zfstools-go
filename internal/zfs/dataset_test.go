@@ -73,7 +73,7 @@ func TestListDatasets(t *testing.T) {
 			t.Parallel()
 
 			runner := &fakeRunner{output: []byte(testCase.output)}
-			got := NewClient(runner, io.Discard).ListDatasets(testCase.pool, testCase.properties, false)
+			got := NewClient(runner, io.Discard).ListDatasets(t.Context(), testCase.pool, testCase.properties, false)
 
 			if diff := deep.Equal(got, testCase.want); diff != nil {
 				t.Errorf("datasets differ: %v", diff)
@@ -91,7 +91,7 @@ func TestListDatasetsCommandError(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeRunner{err: errTestCommand}
-	if got := NewClient(runner, io.Discard).ListDatasets("", nil, false); len(got) != 0 {
+	if got := NewClient(runner, io.Discard).ListDatasets(t.Context(), "", nil, false); len(got) != 0 {
 		t.Fatalf("ListDatasets() = %v, want empty result", got)
 	}
 }

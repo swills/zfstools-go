@@ -2,6 +2,7 @@ package zfs
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"maps"
@@ -15,7 +16,7 @@ type Pool struct {
 }
 
 // ListPools returns ZFS pools using the client's command runner.
-func (client Client) ListPools(name string, cmdProps []string, debug bool) ([]Pool, error) {
+func (client Client) ListPools(ctx context.Context, name string, cmdProps []string, debug bool) ([]Pool, error) {
 	if len(cmdProps) == 0 {
 		cmdProps = []string{"all"}
 	}
@@ -37,7 +38,7 @@ func (client Client) ListPools(name string, cmdProps []string, debug bool) ([]Po
 		_, _ = fmt.Fprintln(client.output, line)
 	}
 
-	reader, done := client.stream("zpool", args...)
+	reader, done := client.stream(ctx, "zpool", args...)
 	pools := parsePools(reader)
 	_ = reader.Close()
 

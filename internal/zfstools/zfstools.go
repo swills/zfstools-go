@@ -1,6 +1,7 @@
 package zfstools
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -16,15 +17,16 @@ const snapshotProperty = "com.sun:auto-snapshot"
 const snapshotFormat = "2006-01-02-15h04"
 
 type zfsClient interface {
-	ListDatasets(pool string, properties []string, debug bool) []zfs.Dataset
-	ListSnapshots(dataset string, recursive, debug bool) ([]zfs.Snapshot, error)
+	ListDatasets(ctx context.Context, pool string, properties []string, debug bool) []zfs.Dataset
+	ListSnapshots(ctx context.Context, dataset string, recursive, debug bool) ([]zfs.Snapshot, error)
 	CreateManySnapshots(
+		ctx context.Context,
 		snapshotName string,
 		datasets []zfs.Dataset,
 		recursive bool,
 		dryRun, verbose, debug, useThreads bool,
 	) error
-	DestroySnapshot(name string, dryRun, debug bool) error
+	DestroySnapshot(ctx context.Context, name string, dryRun, debug bool) error
 }
 
 type Tools struct {
@@ -191,14 +193,18 @@ func removeRecursiveChildren(all, recursive []zfs.Dataset) []zfs.Dataset {
 // - recursive: datasets which can be snapshot recursively, since all snapshots below them are eligible as well
 // - included: datasets which were included in one of those two lists
 // - excluded: datasets which were excluded from both of those lists
-func (tools Tools) FindEligibleDatasets(cfg config.Config, pool string) map[string][]zfs.Dataset {
+func (tools Tools) FindEligibleDatasets(
+	ctx context.Context,
+	cfg config.Config,
+	pool string,
+) map[string][]zfs.Dataset {
 	props := []string{
 		snapshotProperty + ":" + cfg.Interval,
 		snapshotProperty,
 		"mounted",
 	}
 
-	all := tools.client.ListDatasets(pool, props, cfg.Debug)
+	all := tools.client.ListDatasets(ctx, pool, props, cfg.Debug)
 
 	var included []zfs.Dataset
 
@@ -214,19 +220,25 @@ func (tools Tools) FindEligibleDatasets(cfg config.Config, pool string) map[stri
 }
 
 // DoNewSnapshots creates the single and recursive snapshots.
-func (tools Tools) DoNewSnapshots(cfg config.Config, datasets map[string][]zfs.Dataset) error {
+func (tools Tools) DoNewSnapshots(
+	ctx context.Context,
+	cfg config.Config,
+	datasets map[string][]zfs.Dataset,
+) error {
 	name := snapshotName(cfg)
 
 	var singleErr, recursiveErr error
 
 	if len(datasets["single"]) > 0 {
 		singleErr = tools.client.CreateManySnapshots(
+			ctx,
 			name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads,
 		)
 	}
 
 	if len(datasets["recursive"]) > 0 {
 		recursiveErr = tools.client.CreateManySnapshots(
+			ctx,
 			name, datasets["recursive"], true, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads,
 		)
 	}
@@ -256,7 +268,11 @@ func GroupSnapshotsIntoDatasets(snaps []zfs.Snapshot, datasets []zfs.Dataset) ma
 	return result
 }
 
-func (tools Tools) destroyZeroSizedSnapshots(snaps []zfs.Snapshot, cfg config.Config) []zfs.Snapshot {
+func (tools Tools) destroyZeroSizedSnapshots(
+	ctx context.Context,
+	snaps []zfs.Snapshot,
+	cfg config.Config,
+) []zfs.Snapshot {
 	if len(snaps) == 0 {
 		return nil
 	}
@@ -266,13 +282,13 @@ func (tools Tools) destroyZeroSizedSnapshots(snaps []zfs.Snapshot, cfg config.Co
 
 	for i := range snaps[1:] {
 		snap := &snaps[i+1]
-		if snap.IsZero(cfg.Debug) {
+		if snap.IsZero(ctx, cfg.Debug) {
 			if cfg.Verbose {
 				_, _ = fmt.Fprintln(tools.output, "Destroying zero-sized snapshot:", snap.Name)
 			}
 
 			if !cfg.DryRun {
-				_ = tools.client.DestroySnapshot(snap.Name, cfg.DryRun, cfg.Debug)
+				_ = tools.client.DestroySnapshot(ctx, snap.Name, cfg.DryRun, cfg.Debug)
 			}
 		} else {
 			keep = append(keep, *snap)
@@ -283,12 +299,13 @@ func (tools Tools) destroyZeroSizedSnapshots(snaps []zfs.Snapshot, cfg config.Co
 }
 
 func (tools Tools) DatasetsDestroyZeroSizedSnapshots(
+	ctx context.Context,
 	grouped map[string][]zfs.Snapshot,
 	cfg config.Config,
 ) map[string][]zfs.Snapshot {
 	if !cfg.UseThreads {
 		for name, snaps := range grouped {
-			grouped[name] = tools.destroyZeroSizedSnapshots(snaps, cfg)
+			grouped[name] = tools.destroyZeroSizedSnapshots(ctx, snaps, cfg)
 		}
 
 		return grouped
@@ -302,7 +319,7 @@ func (tools Tools) DatasetsDestroyZeroSizedSnapshots(
 	results := make(chan cleanupResult, len(grouped))
 	for name, snaps := range grouped {
 		go func() {
-			results <- cleanupResult{name: name, snapshots: tools.destroyZeroSizedSnapshots(snaps, cfg)}
+			results <- cleanupResult{name: name, snapshots: tools.destroyZeroSizedSnapshots(ctx, snaps, cfg)}
 		}()
 	}
 
@@ -315,11 +332,12 @@ func (tools Tools) DatasetsDestroyZeroSizedSnapshots(
 }
 
 func (tools Tools) CleanupExpiredSnapshots(
+	ctx context.Context,
 	cfg config.Config,
 	pool string,
 	datasets map[string][]zfs.Dataset,
 ) {
-	snaps, _ := tools.client.ListSnapshots(pool, true, cfg.Debug)
+	snaps, _ := tools.client.ListSnapshots(ctx, pool, true, cfg.Debug)
 
 	var filtered []zfs.Snapshot
 
@@ -351,7 +369,7 @@ func (tools Tools) CleanupExpiredSnapshots(
 	}
 
 	if cfg.ShouldDestroyZeroSized {
-		grouped = tools.DatasetsDestroyZeroSizedSnapshots(grouped, cfg)
+		grouped = tools.DatasetsDestroyZeroSizedSnapshots(ctx, grouped, cfg)
 	}
 
 	for name := range grouped {
@@ -372,7 +390,7 @@ func (tools Tools) CleanupExpiredSnapshots(
 			waitGroup.Add(1)
 
 			go func() {
-				_ = tools.client.DestroySnapshot(s.Name, cfg.DryRun, cfg.Debug)
+				_ = tools.client.DestroySnapshot(ctx, s.Name, cfg.DryRun, cfg.Debug)
 
 				waitGroup.Done()
 			}()
