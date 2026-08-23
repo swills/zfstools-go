@@ -120,30 +120,41 @@ func TestListSnapshots(t *testing.T) {
 		recursive bool
 	}{
 		{
-			name:     "all",
-			output:   "tank/data@backup\t134217728\n",
-			wantArgs: []string{"list", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name"},
-			want:     []Snapshot{{Name: "tank/data@backup", Used: 134217728}},
+			name:   "all",
+			output: "tank/data@backup\t134217728\t1735794245\n",
+			wantArgs: []string{
+				"list", "-H", "-p", "-t", "snapshot", "-o", "name,used,creation", "-S", "creation",
+			},
+			want: []Snapshot{{Name: "tank/data@backup", Used: 134217728, Creation: 1735794245}},
 		},
 		{
 			name:      "named recursive",
 			dataset:   "tank",
 			recursive: true,
-			output:    "tank/data@backup1\t131072\n",
-			wantArgs:  []string{"list", "-r", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name", "tank"},
-			want:      []Snapshot{{Name: "tank/data@backup1", Used: 131072}},
+			output:    "tank/data@backup1\t131072\t1735794245\n",
+			wantArgs: []string{
+				"list", "-r", "-H", "-p", "-t", "snapshot", "-o", "name,used,creation", "-S", "creation", "tank",
+			},
+			want: []Snapshot{{Name: "tank/data@backup1", Used: 131072, Creation: 1735794245}},
 		},
 		{
-			name:     "named non-recursive",
-			dataset:  "tank",
-			wantArgs: []string{"list", "-d", "1", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name", "tank"},
-			want:     []Snapshot{},
+			name:    "named non-recursive",
+			dataset: "tank",
+			wantArgs: []string{
+				"list", "-d", "1", "-H", "-p", "-t", "snapshot",
+				"-o", "name,used,creation", "-S", "creation", "tank",
+			},
+			want: []Snapshot{},
 		},
 		{
-			name:     "malformed rows",
-			output:   "invalid\ninvalid@size\tnot-a-number\n",
-			wantArgs: []string{"list", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name"},
-			wantErr:  errInvalidSnapshotOutput,
+			name: "malformed rows",
+			output: "invalid\n" +
+				"invalid@size\tnot-a-number\t1735794245\n" +
+				"invalid@creation\t1\tnot-a-number\n",
+			wantArgs: []string{
+				"list", "-H", "-p", "-t", "snapshot", "-o", "name,used,creation", "-S", "creation",
+			},
+			wantErr: errInvalidSnapshotOutput,
 		},
 	}
 
@@ -167,7 +178,7 @@ func TestListSnapshots(t *testing.T) {
 			} else {
 				publicGot := make([]Snapshot, len(got))
 				for i := range got {
-					publicGot[i] = Snapshot{Name: got[i].Name, Used: got[i].Used}
+					publicGot[i] = Snapshot{Name: got[i].Name, Used: got[i].Used, Creation: got[i].Creation}
 				}
 
 				if diff := deep.Equal(publicGot, testCase.want); diff != nil {
@@ -186,7 +197,7 @@ func TestListSnapshots(t *testing.T) {
 func TestParseSnapshotsReaderError(t *testing.T) {
 	t.Parallel()
 
-	reader := &errorReader{data: []byte("tank/data@snap\t1\n")}
+	reader := &errorReader{data: []byte("tank/data@snap\t1\t1735794245\n")}
 
 	got, err := parseSnapshots(reader, &fakeRunner{}, io.Discard, &snapshotState{})
 	if !errors.Is(err, errTestReader) {
@@ -201,7 +212,7 @@ func TestParseSnapshotsReaderError(t *testing.T) {
 func TestListSnapshotsCommandError(t *testing.T) {
 	t.Parallel()
 
-	runner := &fakeRunner{output: []byte("tank/data@snap\t1\n"), err: errTestCommand}
+	runner := &fakeRunner{output: []byte("tank/data@snap\t1\t1735794245\n"), err: errTestCommand}
 
 	got, err := NewClient(runner, io.Discard).ListSnapshots(t.Context(), "", false, false)
 	if !errors.Is(err, errTestCommand) {
@@ -755,7 +766,7 @@ func TestDestroySnapshotInvalidatesClientSnapshots(t *testing.T) {
 			if !listDone {
 				listDone = true
 
-				return []byte("pool/fs@snap\t1024\n"), nil
+				return []byte("pool/fs@snap\t1024\t1735794245\n"), nil
 			}
 
 			return []byte("4096\n"), nil

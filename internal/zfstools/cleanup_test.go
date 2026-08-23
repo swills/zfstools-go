@@ -311,7 +311,7 @@ func TestDestroyZeroSizedSnapshots(t *testing.T) {
 
 			var listing bytes.Buffer
 			for _, snapshot := range testCase.args.snaps {
-				_, _ = fmt.Fprintf(&listing, "%s\t%d\n", snapshot.Name, snapshot.Used)
+				_, _ = fmt.Fprintf(&listing, "%s\t%d\t%d\n", snapshot.Name, snapshot.Used, snapshot.Creation)
 			}
 
 			runner := &fakeRunner{output: listing.Bytes()}
@@ -353,7 +353,7 @@ func TestDestroyZeroSizedSnapshotsRetainsUnknownSize(t *testing.T) {
 	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
 		switch args[0] {
 		case "list":
-			return []byte("tank/a@3\t1\ntank/a@2\t0\ntank/a@1\t0\n"), nil
+			return []byte("tank/a@3\t1\t3\ntank/a@2\t0\t2\ntank/a@1\t0\t1\n"), nil
 		case "get":
 			return nil, errTestCommand
 		default:
@@ -399,7 +399,7 @@ func TestDestroyZeroSizedSnapshotsReportsDestroyError(t *testing.T) {
 
 	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
 		if args[0] == "list" {
-			return []byte("tank/a@2\t1\ntank/a@1\t0\n"), nil
+			return []byte("tank/a@2\t1\t2\ntank/a@1\t0\t1\n"), nil
 		}
 
 		if args[0] == "destroy" {
@@ -430,7 +430,7 @@ func TestDestroyZeroSizedSnapshotsVerboseOutput(t *testing.T) {
 	t.Parallel()
 
 	output := &bytes.Buffer{}
-	runner := &fakeRunner{output: []byte("tank/a@2\t0\ntank/a@1\t0\n")}
+	runner := &fakeRunner{output: []byte("tank/a@2\t0\t2\ntank/a@1\t0\t1\n")}
 	client := zfs.NewClient(runner, output)
 
 	snapshots, err := client.ListSnapshots(t.Context(), "", true, false)
@@ -462,7 +462,10 @@ func TestApplyZeroSizePlanParallel(t *testing.T) {
 			if name == "zfs" && len(args) > 0 {
 				switch args[0] {
 				case "list":
-					return []byte("tank/a@2\t1\ntank/a@1\t0\ntank/b@2\t1\ntank/b@1\t0\n"), nil
+					return []byte(
+						"tank/a@2\t1\t2\ntank/a@1\t0\t1\n" +
+							"tank/b@2\t1\t2\ntank/b@1\t0\t1\n",
+					), nil
 				case "get":
 					return []byte("0\n"), nil
 				}
@@ -516,7 +519,10 @@ func TestApplyZeroSizePlanParallelErrors(t *testing.T) {
 
 	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
 		if args[0] == "list" {
-			return []byte("tank/a@2\t1\ntank/a@1\t0\ntank/b@2\t1\ntank/b@1\t0\n"), nil
+			return []byte(
+				"tank/a@2\t1\t2\ntank/a@1\t0\t1\n" +
+					"tank/b@2\t1\t2\ntank/b@1\t0\t1\n",
+			), nil
 		}
 
 		if args[0] != "destroy" {
@@ -555,7 +561,10 @@ func TestPlanZeroSizeCleanupCompletesBeforeDestroying(t *testing.T) {
 	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
 		switch args[0] {
 		case "list":
-			return []byte("tank/a@2\t1\ntank/a@1\t0\ntank/b@2\t1\ntank/b@1\t0\n"), nil
+			return []byte(
+				"tank/a@2\t1\t2\ntank/a@1\t0\t1\n" +
+					"tank/b@2\t1\t2\ntank/b@1\t0\t1\n",
+			), nil
 		case "get":
 			if strings.HasPrefix(args[len(args)-1], "tank/b@") {
 				return nil, errTestCommand
@@ -599,11 +608,11 @@ func TestApplySnapshotRetention(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeRunner{output: []byte(
-		"tank/included@zfs-auto-snap_daily-2025-01-02-03h04\t10\n" +
-			"tank/included@zfs-auto-snap_daily-2025-01-01-03h04\t10\n" +
-			"tank/within-keep@zfs-auto-snap_daily-2025-01-02-03h04U\t10\n" +
-			"tank/excluded@zfs-auto-snap_daily-2025-01-01-03h04\t10\n" +
-			"tank/included@manual\t10\n",
+		"tank/included@zfs-auto-snap_daily-2025-01-02-03h04\t10\t1\n" +
+			"tank/included@zfs-auto-snap_daily-2025-01-01-03h04\t10\t2\n" +
+			"tank/within-keep@zfs-auto-snap_daily-2025-01-02-03h04U\t10\t2\n" +
+			"tank/excluded@zfs-auto-snap_daily-2025-01-01-03h04\t10\t1\n" +
+			"tank/included@manual\t10\t3\n",
 	)}
 	client := zfs.NewClient(runner, io.Discard)
 	tools := New(client, io.Discard)
@@ -628,13 +637,13 @@ func TestApplySnapshotRetention(t *testing.T) {
 	}
 
 	if diff := deep.Equal(destroyed, []string{
-		"tank/included@zfs-auto-snap_daily-2025-01-01-03h04",
+		"tank/included@zfs-auto-snap_daily-2025-01-02-03h04",
 	}); diff != nil {
 		t.Errorf("destroyed snapshots differ: %v", diff)
 	}
 
 	wantList := commandCall{name: "zfs", args: []string{
-		"list", "-r", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name", "tank",
+		"list", "-r", "-H", "-p", "-t", "snapshot", "-o", "name,used,creation", "-S", "creation", "tank",
 	}}
 	if diff := deep.Equal(runner.calls[0], wantList); diff != nil {
 		t.Errorf("list command differs: %v", diff)
@@ -684,8 +693,8 @@ func TestApplySnapshotRetentionDestroyErrorStopsSerialCleanup(t *testing.T) {
 	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
 		if args[0] == "list" {
 			return []byte(
-				"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t10\n" +
-					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t10\n",
+				"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t10\t2\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t10\t1\n",
 			), nil
 		}
 
@@ -725,8 +734,8 @@ func TestApplySnapshotRetentionReportsZeroSizePlanError(t *testing.T) {
 		switch args[0] {
 		case "list":
 			return []byte(
-				"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t1\n" +
-					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t0\n",
+				"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t1\t2\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t0\t1\n",
 			), nil
 		case "get":
 			return nil, errTestCommand
@@ -767,8 +776,8 @@ func TestApplySnapshotRetentionReportsZeroSizeDestroyError(t *testing.T) {
 	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
 		if args[0] == "list" {
 			return []byte(
-				"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t1\n" +
-					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t0\n",
+				"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t1\t2\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t0\t1\n",
 			), nil
 		}
 
@@ -799,7 +808,7 @@ func TestPruneZeroSizedSnapshots(t *testing.T) {
 		}
 
 		if slices.Contains(args, "snapshot") {
-			return []byte("tank/data@manual-new\t0\ntank/data@manual-old\t0\n"), nil
+			return []byte("tank/data@manual-new\t0\t2\ntank/data@manual-old\t0\t1\n"), nil
 		}
 
 		return []byte("tank/data\tfilesystem\n"), nil
@@ -833,11 +842,11 @@ func TestPruneZeroSizedSnapshotsInspectsSnapshotComponent(t *testing.T) {
 
 		if slices.Contains(args, "snapshot") {
 			return []byte(
-				"tank/zfs-auto-snap_dataset@manual-new\t0\n" +
-					"tank/zfs-auto-snap_dataset@manual-old\t0\n" +
-					"tank/data@manual-new\t0\n" +
-					"tank/data@manual-zfs-auto-snap_daily-2025-01-01-03h04\t0\n" +
-					"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t0\n",
+				"tank/zfs-auto-snap_dataset@manual-new\t0\t2\n" +
+					"tank/zfs-auto-snap_dataset@manual-old\t0\t1\n" +
+					"tank/data@manual-new\t0\t3\n" +
+					"tank/data@manual-zfs-auto-snap_daily-2025-01-01-03h04\t0\t1\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t0\t2\n",
 			), nil
 		}
 
@@ -885,7 +894,7 @@ func TestPruneZeroSizedSnapshotsDiscoveryErrors(t *testing.T) {
 				isSnapshotList := args[0] == "list" && slices.Contains(args, "snapshot")
 				if isSnapshotList == testCase.failDatasets {
 					if isSnapshotList {
-						return []byte("tank/data@manual\t0\n"), nil
+						return []byte("tank/data@manual\t0\t1\n"), nil
 					}
 
 					return []byte("tank/data\tfilesystem\n"), nil
@@ -909,7 +918,7 @@ func TestPruneZeroSizedSnapshotsReportsPlanError(t *testing.T) {
 	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
 		switch {
 		case args[0] == "list" && slices.Contains(args, "snapshot"):
-			return []byte("tank/data@manual-new\t1\ntank/data@manual-old\t0\n"), nil
+			return []byte("tank/data@manual-new\t1\t2\ntank/data@manual-old\t0\t1\n"), nil
 		case args[0] == "list":
 			return []byte("tank/data\tfilesystem\n"), nil
 		case args[0] == "get":

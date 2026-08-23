@@ -33,7 +33,7 @@ func TestClientDiagnosticOutput(t *testing.T) {
 			run: func(ctx context.Context, client Client) {
 				_, _ = client.ListSnapshots(ctx, "tank", true, true)
 			},
-			want: "zfs list -r -H -p -t snapshot -o name,used -S name tank\n",
+			want: "zfs list -r -H -p -t snapshot -o name,used,creation -S creation tank\n",
 		},
 		{
 			name: "create snapshot",

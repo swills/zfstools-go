@@ -1,10 +1,12 @@
 package zfstools
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"zfstools-go/internal/config"
@@ -279,6 +281,16 @@ func GroupSnapshotsIntoDatasets(snaps []zfs.Snapshot, datasets []zfs.Dataset) ma
 				break
 			}
 		}
+	}
+
+	for _, snapshots := range result {
+		slices.SortFunc(snapshots, func(left, right zfs.Snapshot) int {
+			if left.Creation != right.Creation {
+				return cmp.Compare(right.Creation, left.Creation)
+			}
+
+			return cmp.Compare(left.Name, right.Name)
+		})
 	}
 
 	return result

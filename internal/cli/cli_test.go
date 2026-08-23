@@ -67,7 +67,7 @@ func (runner *fakeRunner) Run(ctx context.Context, output io.Writer, name string
 		case slices.Contains(args, "snapshot") && runner.snapshotOutput != "":
 			data = runner.snapshotOutput
 		case slices.Contains(args, "snapshot"):
-			data = "tank/data@manual-new\t0\ntank/data@manual-old\t0\n"
+			data = "tank/data@manual-new\t0\t2\ntank/data@manual-old\t0\t1\n"
 		case runner.datasetOutput != "":
 			data = runner.datasetOutput
 		case strings.Contains(strings.Join(args, " "), "com.sun:auto-snapshot"):
@@ -375,10 +375,10 @@ func TestRunAutoSnapshotCleansOnlySuccessfulDatasets(t *testing.T) {
 	runner := &fakeRunner{
 		datasetOutput: "tank/fs1\tfilesystem\t-\ttrue\tyes\n" +
 			"tank/fs2\tfilesystem\t-\ttrue\tyes\n",
-		snapshotOutput: "tank/fs1@zfs-auto-snap_daily-2025-01-02-03h04\t10\n" +
-			"tank/fs1@zfs-auto-snap_daily-2025-01-01-03h04\t10\n" +
-			"tank/fs2@zfs-auto-snap_daily-2025-01-02-03h04\t10\n" +
-			"tank/fs2@zfs-auto-snap_daily-2025-01-01-03h04\t10\n",
+		snapshotOutput: "tank/fs1@zfs-auto-snap_daily-2025-01-02-03h04\t10\t2\n" +
+			"tank/fs1@zfs-auto-snap_daily-2025-01-01-03h04\t10\t1\n" +
+			"tank/fs2@zfs-auto-snap_daily-2025-01-02-03h04\t10\t2\n" +
+			"tank/fs2@zfs-auto-snap_daily-2025-01-01-03h04\t10\t1\n",
 		failSnapshotDataset: "tank/fs1",
 	}
 	stdout := &bytes.Buffer{}
@@ -688,8 +688,8 @@ func TestRunAutoSnapshotReportsCleanupDestroyFailure(t *testing.T) {
 
 	runner := &fakeRunner{
 		failDestroy: true,
-		snapshotOutput: "tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t10\n" +
-			"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t10\n",
+		snapshotOutput: "tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t10\t2\n" +
+			"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t10\t1\n",
 	}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}

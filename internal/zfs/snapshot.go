@@ -14,7 +14,7 @@ import (
 const (
 	argMaxFallback     = 4096
 	argMaxSafetyMargin = 1024
-	snapshotFieldCount = 2
+	snapshotFieldCount = 3
 )
 
 var ErrEmptySnapshotName = errors.New("empty snapshot name")
@@ -33,6 +33,7 @@ type Snapshot struct {
 	state     *snapshotState
 	Name      string
 	Used      int64
+	Creation  int64
 	usedKnown bool
 }
 
@@ -87,7 +88,7 @@ func (client Client) ListSnapshots(
 		args = append(args, "-r")
 	}
 
-	args = append(args, "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name")
+	args = append(args, "-H", "-p", "-t", "snapshot", "-o", "name,used,creation", "-S", "creation")
 
 	if dataset != "" {
 		args = append(args, dataset)
@@ -148,8 +149,18 @@ func parseSnapshots(
 			continue
 		}
 
+		creation, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			parseErr = errors.Join(parseErr, fmt.Errorf(
+				"%w on line %d: parse creation value: %w", errInvalidSnapshotOutput, lineNumber, err,
+			))
+
+			continue
+		}
+
 		snapshots = append(snapshots, Snapshot{
-			Name: parts[0], Used: size, runner: runner, output: output, state: state, usedKnown: true,
+			Name: parts[0], Used: size, Creation: creation,
+			runner: runner, output: output, state: state, usedKnown: true,
 		})
 	}
 

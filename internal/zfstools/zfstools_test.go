@@ -252,6 +252,26 @@ func TestGroupSnapshotsIntoDatasets(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "orders by creation then name",
+			args: args{
+				snaps: []zfs.Snapshot{
+					{Name: "tank@z-lexically-newest", Creation: 1},
+					{Name: "tank@a-lexically-oldest", Creation: 3},
+					{Name: "tank@m-tie", Creation: 2},
+					{Name: "tank@b-tie", Creation: 2},
+				},
+				datasets: []zfs.Dataset{{Name: "tank"}},
+			},
+			want: map[string][]zfs.Snapshot{
+				"tank": {
+					{Name: "tank@a-lexically-oldest", Creation: 3},
+					{Name: "tank@b-tie", Creation: 2},
+					{Name: "tank@m-tie", Creation: 2},
+					{Name: "tank@z-lexically-newest", Creation: 1},
+				},
+			},
+		},
 	}
 
 	for _, testCase := range tests {
