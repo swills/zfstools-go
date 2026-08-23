@@ -85,10 +85,14 @@ func RunAutoSnapshot(name string, args []string, stdout, stderr io.Writer, versi
 
 	cfg.Interval = flags.Arg(0)
 
-	keep, err := strconv.ParseInt(flags.Arg(1), 10, 0)
-	if err == nil {
-		cfg.Keep = int(keep)
+	keep, err := parseKeep(flags.Arg(1))
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "invalid KEEP %q: must be a non-negative decimal integer\n", flags.Arg(1))
+
+		return 2
 	}
+
+	cfg.Keep = keep
 
 	client := zfs.NewSystemClient(stdout)
 	tools := zfstools.New(client, stdout)
@@ -101,6 +105,25 @@ func RunAutoSnapshot(name string, args []string, stdout, stderr io.Writer, versi
 	tools.CleanupExpiredSnapshots(cfg, pool, datasets)
 
 	return 0
+}
+
+func parseKeep(value string) (int, error) {
+	if value == "" {
+		return 0, strconv.ErrSyntax
+	}
+
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return 0, strconv.ErrSyntax
+		}
+	}
+
+	keep, err := strconv.ParseInt(value, 10, 0)
+	if err != nil {
+		return 0, fmt.Errorf("parse KEEP: %w", err)
+	}
+
+	return int(keep), nil
 }
 
 // RunCleanupSnapshots runs zfs-cleanup-snapshots.

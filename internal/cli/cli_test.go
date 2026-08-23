@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"strconv"
 	"testing"
 )
 
@@ -96,5 +97,67 @@ func TestRunRejectsUnknownExecutableName(t *testing.T) {
 
 	if stderr.Len() == 0 {
 		t.Error("Run() did not explain the unknown executable name")
+	}
+}
+
+func TestParseKeep(t *testing.T) {
+	t.Parallel()
+
+	overflow := "2147483648"
+	if strconv.IntSize == 64 {
+		overflow = "9223372036854775808"
+	}
+
+	tests := []struct {
+		name    string
+		value   string
+		want    int
+		wantErr bool
+	}{
+		{name: "zero", value: "0", want: 0},
+		{name: "positive", value: "10", want: 10},
+		{name: "negative", value: "-1", wantErr: true},
+		{name: "partial", value: "10oops", wantErr: true},
+		{name: "leading whitespace", value: " 10", wantErr: true},
+		{name: "trailing whitespace", value: "10 ", wantErr: true},
+		{name: "empty", value: "", wantErr: true},
+		{name: "overflow", value: overflow, wantErr: true},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseKeep(testCase.value)
+			if (err != nil) != testCase.wantErr {
+				t.Fatalf("parseKeep(%q) error = %v, wantErr %t", testCase.value, err, testCase.wantErr)
+			}
+
+			if got != testCase.want {
+				t.Errorf("parseKeep(%q) = %d, want %d", testCase.value, got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestRunAutoSnapshotRejectsInvalidKeep(t *testing.T) {
+	t.Parallel()
+
+	stderr := &bytes.Buffer{}
+	code := RunAutoSnapshot(
+		autoSnapshotName,
+		[]string{"daily", "10oops"},
+		&bytes.Buffer{},
+		stderr,
+		"dev",
+		"none",
+	)
+
+	if code != 2 {
+		t.Errorf("RunAutoSnapshot() code = %d, want 2", code)
+	}
+
+	if got, want := stderr.String(), "invalid KEEP \"10oops\": must be a non-negative decimal integer\n"; got != want {
+		t.Errorf("RunAutoSnapshot() stderr = %q, want %q", got, want)
 	}
 }
