@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+const poolPropertyFieldCount = 3
+
 type Pool struct {
 	Properties map[string]string
 	Name       string
@@ -58,7 +60,7 @@ func parsePools(reader io.Reader) []Pool {
 		line := scanner.Text()
 		values := strings.Split(line, "\t")
 
-		if len(values) < 3 {
+		if len(values) < poolPropertyFieldCount {
 			continue
 		}
 

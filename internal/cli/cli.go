@@ -18,9 +18,11 @@ import (
 )
 
 const (
-	autoSnapshotName = "zfs-auto-snapshot"
-	cleanupName      = "zfs-cleanup-snapshots"
-	mysqlName        = "zfs-snapshot-mysql"
+	autoSnapshotArgumentCount = 2
+	autoSnapshotName          = "zfs-auto-snapshot"
+	cleanupName               = "zfs-cleanup-snapshots"
+	mysqlName                 = "zfs-snapshot-mysql"
+	usageErrorExitCode        = 2
 )
 
 // Run selects a command using the executable name, as required by a multi-call binary.
@@ -49,7 +51,7 @@ func run(
 		_, _ = fmt.Fprintf(stderr, "unknown command %q (expected %s, %s, or %s)\n",
 			filepath.Base(name), autoSnapshotName, cleanupName, mysqlName)
 
-		return 2
+		return usageErrorExitCode
 	}
 }
 
@@ -95,7 +97,7 @@ func runAutoSnapshot(
 		cfg.ShouldDestroyZeroSized = false
 	}
 
-	if flags.NArg() < 2 {
+	if flags.NArg() < autoSnapshotArgumentCount {
 		flags.Usage()
 
 		return 0
@@ -107,7 +109,7 @@ func runAutoSnapshot(
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "invalid KEEP %q: must be a non-negative decimal integer\n", flags.Arg(1))
 
-		return 2
+		return usageErrorExitCode
 	}
 
 	cfg.Keep = keep
@@ -274,7 +276,7 @@ func parse(flags *pflag.FlagSet, args []string) int {
 		_, _ = fmt.Fprintln(flags.Output(), err)
 		flags.Usage()
 
-		return 2
+		return usageErrorExitCode
 	}
 
 	return -1

@@ -250,14 +250,13 @@ func GroupSnapshotsIntoDatasets(snaps []zfs.Snapshot, datasets []zfs.Dataset) ma
 	result := map[string][]zfs.Snapshot{}
 
 	for _, snap := range snaps {
-		parts := strings.SplitN(snap.Name, "@", 2)
-
-		if len(parts) != 2 {
+		datasetName, _, found := strings.Cut(snap.Name, "@")
+		if !found {
 			continue
 		}
 
 		for _, ds := range datasets {
-			if ds.Name == parts[0] {
+			if ds.Name == datasetName {
 				result[ds.Name] = append(result[ds.Name], snap)
 
 				break

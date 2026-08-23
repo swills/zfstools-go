@@ -11,6 +11,12 @@ import (
 	"strings"
 )
 
+const (
+	argMaxFallback     = 4096
+	argMaxSafetyMargin = 1024
+	snapshotFieldCount = 2
+)
+
 var ErrEmptySnapshotName = errors.New("empty snapshot name")
 
 var ErrInvalidSnapshotName = errors.New("invalid snapshot name")
@@ -107,7 +113,7 @@ func parseSnapshots(reader io.Reader, runner Runner, output io.Writer, state *sn
 
 	for scanner.Scan() {
 		parts := strings.Split(scanner.Text(), "\t")
-		if len(parts) != 2 {
+		if len(parts) != snapshotFieldCount {
 			continue
 		}
 
@@ -414,7 +420,7 @@ func (client Client) createPooledSnapshots(
 	maxTargetLength := 0
 
 	for _, dataset := range datasets {
-		pool := strings.SplitN(dataset.Name, "/", 2)[0]
+		pool, _, _ := strings.Cut(dataset.Name, "/")
 		pools[pool] = append(pools[pool], dataset.Name)
 		targetLength := len(dataset.Name) + 1 + len(snapshotName)
 
@@ -423,7 +429,7 @@ func (client Client) createPooledSnapshots(
 		}
 	}
 
-	available := max(client.getArgMax(ctx)-1024, 1)
+	available := max(client.getArgMax(ctx)-argMaxSafetyMargin, 1)
 	chunkSize := max(available/maxTargetLength, 1)
 
 	var result error
@@ -448,12 +454,12 @@ func (client Client) getArgMax(ctx context.Context) int {
 
 	err := client.runner.Run(ctx, &out, "getconf", "ARG_MAX")
 	if err != nil {
-		return 4096 // conservative fallback
+		return argMaxFallback
 	}
 
 	val, err := strconv.ParseInt(strings.TrimSpace(out.String()), 10, 64)
 	if err != nil {
-		return 4096
+		return argMaxFallback
 	}
 
 	return int(val)
