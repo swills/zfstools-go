@@ -166,36 +166,49 @@ func TestListSnapshotsCommandError(t *testing.T) {
 	}
 }
 
-func TestCreateSnapshot(t *testing.T) {
+func TestCreateSnapshots(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantErr   error
-		name      string
-		database  string
-		wantCmd   string
-		targets   []string
-		recursive bool
-		dryRun    bool
+		wantErr      error
+		name         string
+		database     string
+		wantCmd      string
+		snapshotName string
+		datasetNames []string
+		recursive    bool
+		dryRun       bool
 	}{
-		{name: "no targets", wantErr: ErrEmptySnapshotName},
-		{name: "invalid target", targets: []string{"pool/fs"}, wantErr: ErrInvalidSnapshotName},
-		{name: "single", targets: []string{"pool/fs@snap"}, wantCmd: "zfs snapshot pool/fs@snap"},
+		{name: "empty snapshot name", datasetNames: []string{"pool/fs"}, wantErr: ErrEmptySnapshotName},
+		{name: "no datasets", snapshotName: "snap", wantErr: ErrNoDatasets},
 		{
-			name: "multiple recursive", targets: []string{"pool/fs1@snap", "pool/fs2@snap"}, recursive: true,
-			wantCmd: "zfs snapshot -r pool/fs1@snap pool/fs2@snap",
+			name: "snapshot separator in dataset", datasetNames: []string{"pool/fs@old"}, snapshotName: "snap",
+			wantErr: ErrInvalidSnapshotName,
 		},
 		{
-			name: "mysql", targets: []string{"pool/fs@snap"}, database: "mysql",
+			name: "snapshot separator in name", datasetNames: []string{"pool/fs"}, snapshotName: "old@snap",
+			wantErr: ErrInvalidSnapshotName,
+		},
+		{
+			name: "single", datasetNames: []string{"pool/fs"}, snapshotName: "snap",
+			wantCmd: "zfs snapshot pool/fs@snap",
+		},
+		{
+			name: "multiple recursive", datasetNames: []string{"pool/fs1", "pool/fs2"}, snapshotName: "snap",
+			recursive: true,
+			wantCmd:   "zfs snapshot -r pool/fs1@snap pool/fs2@snap",
+		},
+		{
+			name: "mysql", datasetNames: []string{"pool/fs"}, snapshotName: "snap", database: "mysql",
 			wantCmd: "mysql -e \" FLUSH LOGS; FLUSH TABLES WITH READ LOCK; " +
 				"SYSTEM zfs snapshot pool/fs@snap; UNLOCK TABLES;\"",
 		},
 		{
-			name: "postgresql", targets: []string{"pool/fs@snap"}, database: "postgresql",
+			name: "postgresql", datasetNames: []string{"pool/fs"}, snapshotName: "snap", database: "postgresql",
 			wantCmd: "(psql -c \"SELECT PG_START_BACKUP('zfs-auto-snapshot');\" postgres ; " +
 				"zfs snapshot pool/fs@snap ) ; psql -c \"SELECT PG_STOP_BACKUP();\" postgres",
 		},
-		{name: "dry run", targets: []string{"pool/fs@snap"}, dryRun: true},
+		{name: "dry run", datasetNames: []string{"pool/fs"}, snapshotName: "snap", dryRun: true},
 	}
 
 	for _, testCase := range tests {
@@ -205,10 +218,12 @@ func TestCreateSnapshot(t *testing.T) {
 			runner := &fakeRunner{}
 			client := NewClient(runner, io.Discard)
 
-			err := client.CreateSnapshot(testCase.targets, testCase.recursive, testCase.database,
-				testCase.dryRun, false, false)
+			err := client.CreateSnapshots(
+				testCase.datasetNames, testCase.snapshotName, testCase.recursive, testCase.database,
+				testCase.dryRun, false, false,
+			)
 			if !errors.Is(err, testCase.wantErr) {
-				t.Fatalf("createSnapshot() error = %v, want %v", err, testCase.wantErr)
+				t.Fatalf("CreateSnapshots() error = %v, want %v", err, testCase.wantErr)
 			}
 
 			wantCalls := []commandCall(nil)
@@ -223,14 +238,14 @@ func TestCreateSnapshot(t *testing.T) {
 	}
 }
 
-func TestCreateSnapshotCommandError(t *testing.T) {
+func TestCreateSnapshotsCommandError(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeRunner{err: errTestCommand}
-	if err := NewClient(runner, io.Discard).CreateSnapshot(
-		[]string{"pool/fs@snap"}, false, "", false, false, false,
+	if err := NewClient(runner, io.Discard).CreateSnapshots(
+		[]string{"pool/fs"}, "snap", false, "", false, false, false,
 	); err == nil {
-		t.Fatal("createSnapshot() error = nil, want command error")
+		t.Fatal("CreateSnapshots() error = nil, want command error")
 	}
 }
 
@@ -240,9 +255,14 @@ func TestCreateManySnapshots(t *testing.T) {
 	t.Run("multi-snapshot", func(t *testing.T) {
 		t.Parallel()
 
-		runner := &fakeRunner{output: []byte("123456\n")}
+		runner := &fakeRunner{runFunc: func(name string, _ ...string) ([]byte, error) {
+			if name == "zpool" {
+				return []byte("pool\tfeature@bookmarks\tenabled\n"), nil
+			}
+
+			return []byte("123456\n"), nil
+		}}
 		client := NewClient(runner, io.Discard)
-		client.hasMultiSnap = func(bool) bool { return true }
 
 		err := client.CreateManySnapshots("auto",
 			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
@@ -251,6 +271,9 @@ func TestCreateManySnapshots(t *testing.T) {
 		}
 
 		want := []commandCall{
+			{name: "zpool", args: []string{
+				"get", "-H", "-p", "-o", "name,property,value", "feature@bookmarks",
+			}},
 			{name: "getconf", args: []string{"ARG_MAX"}},
 			{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@auto pool/fs2@auto"}},
 		}
@@ -265,7 +288,6 @@ func TestCreateManySnapshots(t *testing.T) {
 
 		runner := &fakeRunner{}
 		client := NewClient(runner, io.Discard)
-		client.hasMultiSnap = func(bool) bool { return false }
 
 		err := client.CreateManySnapshots("auto",
 			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
@@ -274,6 +296,9 @@ func TestCreateManySnapshots(t *testing.T) {
 		}
 
 		want := []commandCall{
+			{name: "zpool", args: []string{
+				"get", "-H", "-p", "-o", "name,property,value", "feature@bookmarks",
+			}},
 			{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@auto"}},
 			{name: "sh", args: []string{"-c", "zfs snapshot pool/fs2@auto"}},
 		}
@@ -293,7 +318,6 @@ func TestCreateManySnapshots(t *testing.T) {
 			return nil, nil
 		}}
 		client := NewClient(runner, io.Discard)
-		client.hasMultiSnap = func(bool) bool { return false }
 
 		err := client.CreateManySnapshots("auto",
 			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
@@ -308,11 +332,6 @@ func TestCreateManySnapshotsDatabaseDataset(t *testing.T) {
 
 	runner := &fakeRunner{}
 	client := NewClient(runner, io.Discard)
-	client.hasMultiSnap = func(bool) bool {
-		t.Fatal("database-only request checked multi-snapshot support")
-
-		return false
-	}
 
 	err := client.CreateManySnapshots(
 		"auto", []Dataset{{Name: "pool/mysql", DB: "mysql"}}, false, false, false, false, false,
@@ -341,7 +360,6 @@ func TestCreateManySnapshotsMixedDatasetsContinueAfterError(t *testing.T) {
 		return nil, nil
 	}}
 	client := NewClient(runner, io.Discard)
-	client.hasMultiSnap = func(bool) bool { return false }
 
 	err := client.CreateManySnapshots("auto", []Dataset{
 		{Name: "pool/mysql", DB: "mysql"},
@@ -351,11 +369,11 @@ func TestCreateManySnapshotsMixedDatasetsContinueAfterError(t *testing.T) {
 		t.Fatalf("CreateManySnapshots() error = %v, want %v", err, ErrOneSnapshotOfManyErrored)
 	}
 
-	if len(runner.calls) != 2 {
-		t.Fatalf("command count = %d, want 2", len(runner.calls))
+	if len(runner.calls) != 3 {
+		t.Fatalf("command count = %d, want 3", len(runner.calls))
 	}
 
-	if got := runner.calls[1]; deep.Equal(got, commandCall{
+	if got := runner.calls[2]; deep.Equal(got, commandCall{
 		name: "sh", args: []string{"-c", "zfs snapshot pool/files@auto"},
 	}) != nil {
 		t.Errorf("regular dataset command = %#v", got)
@@ -384,7 +402,6 @@ func TestCreateManySnapshotsParallelFallback(t *testing.T) {
 				return nil, nil
 			}}
 			client := NewClient(runner, io.Discard)
-			client.hasMultiSnap = func(bool) bool { return false }
 
 			err := client.CreateManySnapshots("auto", []Dataset{
 				{Name: "pool/fs1"}, {Name: "pool/fs2"}, {Name: "pool/fs3"},
@@ -395,6 +412,10 @@ func TestCreateManySnapshotsParallelFallback(t *testing.T) {
 
 			commands := make([]string, 0, len(runner.calls))
 			for _, call := range runner.calls {
+				if call.name == "zpool" {
+					continue
+				}
+
 				if call.name != "sh" || len(call.args) != 2 || call.args[0] != "-c" {
 					t.Fatalf("unexpected command: %#v", call)
 				}
@@ -419,9 +440,14 @@ func TestCreateManySnapshotsParallelFallback(t *testing.T) {
 func TestCreateManySnapshotsMinimumChunkSize(t *testing.T) {
 	t.Parallel()
 
-	runner := &fakeRunner{output: []byte("1\n")}
+	runner := &fakeRunner{runFunc: func(name string, _ ...string) ([]byte, error) {
+		if name == "zpool" {
+			return []byte("pool\tfeature@bookmarks\tenabled\n"), nil
+		}
+
+		return []byte("1\n"), nil
+	}}
 	client := NewClient(runner, io.Discard)
-	client.hasMultiSnap = func(bool) bool { return true }
 
 	err := client.CreateManySnapshots("auto", []Dataset{
 		{Name: "pool/fs1"}, {Name: "pool/fs2"},
@@ -431,6 +457,9 @@ func TestCreateManySnapshotsMinimumChunkSize(t *testing.T) {
 	}
 
 	want := []commandCall{
+		{name: "zpool", args: []string{
+			"get", "-H", "-p", "-o", "name,property,value", "feature@bookmarks",
+		}},
 		{name: "getconf", args: []string{"ARG_MAX"}},
 		{name: "sh", args: []string{"-c", "zfs snapshot pool/fs1@auto"}},
 		{name: "sh", args: []string{"-c", "zfs snapshot pool/fs2@auto"}},
@@ -453,6 +482,10 @@ func TestCreateManySnapshotsValidation(t *testing.T) {
 		{name: "no datasets", snapshot: "auto", want: ErrNoDatasets},
 		{name: "empty dataset", snapshot: "auto", datasets: []Dataset{{Name: ""}}, want: ErrInvalidSnapshotName},
 		{
+			name: "snapshot separator in name", snapshot: "old@auto",
+			datasets: []Dataset{{Name: "pool/fs"}}, want: ErrInvalidSnapshotName,
+		},
+		{
 			name: "snapshot in dataset", snapshot: "auto",
 			datasets: []Dataset{{Name: "pool/fs@old"}}, want: ErrInvalidSnapshotName,
 		},
@@ -463,7 +496,6 @@ func TestCreateManySnapshotsValidation(t *testing.T) {
 			t.Parallel()
 
 			client := NewClient(&fakeRunner{}, io.Discard)
-			client.hasMultiSnap = func(bool) bool { return false }
 
 			err := client.CreateManySnapshots(testCase.snapshot,
 				testCase.datasets, false, false, false, false, false)

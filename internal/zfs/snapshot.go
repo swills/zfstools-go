@@ -111,21 +111,33 @@ func parseSnapshots(reader io.Reader, runner Runner, output io.Writer, state *sn
 	return snapshots
 }
 
-// CreateSnapshot creates snapshots using the client's command runner.
-func (client Client) CreateSnapshot(
-	targets []string,
+// CreateSnapshots creates snapshots using the client's command runner.
+func (client Client) CreateSnapshots(
+	datasetNames []string,
+	snapshotName string,
 	recursive bool,
 	dbName string,
 	dryRun, verbose, debug bool,
 ) error {
-	if len(targets) < 1 {
+	if snapshotName == "" {
 		return ErrEmptySnapshotName
 	}
 
-	for _, v := range targets {
-		if !strings.Contains(v, "@") || v == "" {
-			return fmt.Errorf("%w: %s", ErrInvalidSnapshotName, v)
+	if strings.Contains(snapshotName, "@") {
+		return fmt.Errorf("%w: %s", ErrInvalidSnapshotName, snapshotName)
+	}
+
+	if len(datasetNames) < 1 {
+		return ErrNoDatasets
+	}
+
+	targets := make([]string, 0, len(datasetNames))
+	for _, datasetName := range datasetNames {
+		if datasetName == "" || strings.Contains(datasetName, "@") {
+			return fmt.Errorf("%w: %s", ErrInvalidSnapshotName, datasetName)
 		}
+
+		targets = append(targets, datasetName+"@"+snapshotName)
 	}
 
 	base := []string{"zfs", "snapshot"}
@@ -197,7 +209,7 @@ func (client Client) CreateManySnapshots(
 	failed := client.createIndividualSnapshots(snapshotName, dbDatasets, options)
 
 	if len(regularDatasets) > 0 {
-		if client.hasMultiSnap(debug) {
+		if client.hasBookmarks(debug) {
 			failed = client.createPooledSnapshots(snapshotName, regularDatasets, options) || failed
 		} else {
 			failed = client.createIndividualSnapshots(snapshotName, regularDatasets, options) || failed
@@ -214,6 +226,10 @@ func (client Client) CreateManySnapshots(
 func validateCreateManyRequest(snapshotName string, datasets []Dataset) error {
 	if snapshotName == "" {
 		return ErrEmptySnapshotName
+	}
+
+	if strings.Contains(snapshotName, "@") {
+		return fmt.Errorf("%w: %s", ErrInvalidSnapshotName, snapshotName)
 	}
 
 	if len(datasets) < 1 {
@@ -248,19 +264,14 @@ func (client Client) createIndividualSnapshots(
 	datasets []Dataset,
 	options createOptions,
 ) bool {
-	create := func(dataset Dataset) error {
-		name := fmt.Sprintf("%s@%s", dataset.Name, snapshotName)
-
-		return client.CreateSnapshot(
-			[]string{name}, options.recursive, dataset.DB, options.dryRun, options.verbose, options.debug,
-		)
-	}
-
 	if !options.useThreads {
 		failed := false
 
 		for _, dataset := range datasets {
-			if create(dataset) != nil {
+			if client.CreateSnapshots(
+				[]string{dataset.Name}, snapshotName, options.recursive, dataset.DB,
+				options.dryRun, options.verbose, options.debug,
+			) != nil {
 				failed = true
 			}
 		}
@@ -271,7 +282,10 @@ func (client Client) createIndividualSnapshots(
 	results := make(chan error, len(datasets))
 	for _, dataset := range datasets {
 		go func() {
-			results <- create(dataset)
+			results <- client.CreateSnapshots(
+				[]string{dataset.Name}, snapshotName, options.recursive, dataset.DB,
+				options.dryRun, options.verbose, options.debug,
+			)
 		}()
 	}
 
@@ -295,12 +309,12 @@ func (client Client) createPooledSnapshots(
 	maxTargetLength := 0
 
 	for _, dataset := range datasets {
-		target := fmt.Sprintf("%s@%s", dataset.Name, snapshotName)
 		pool := strings.SplitN(dataset.Name, "/", 2)[0]
-		pools[pool] = append(pools[pool], target)
+		pools[pool] = append(pools[pool], dataset.Name)
+		targetLength := len(dataset.Name) + 1 + len(snapshotName)
 
-		if len(target) > maxTargetLength {
-			maxTargetLength = len(target)
+		if targetLength > maxTargetLength {
+			maxTargetLength = targetLength
 		}
 	}
 
@@ -308,11 +322,12 @@ func (client Client) createPooledSnapshots(
 	chunkSize := max(available/maxTargetLength, 1)
 	failed := false
 
-	for _, targets := range pools {
-		for index := 0; index < len(targets); index += chunkSize {
-			end := min(index+chunkSize, len(targets))
-			if client.CreateSnapshot(
-				targets[index:end], options.recursive, "", options.dryRun, options.verbose, options.debug,
+	for _, datasetNames := range pools {
+		for index := 0; index < len(datasetNames); index += chunkSize {
+			end := min(index+chunkSize, len(datasetNames))
+			if client.CreateSnapshots(
+				datasetNames[index:end], snapshotName, options.recursive, "",
+				options.dryRun, options.verbose, options.debug,
 			) != nil {
 				failed = true
 			}

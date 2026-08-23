@@ -14,13 +14,25 @@ const snapshotProperty = "com.sun:auto-snapshot"
 
 const snapshotFormat = "2006-01-02-15h04"
 
+type zfsClient interface {
+	ListDatasets(pool string, properties []string, debug bool) []zfs.Dataset
+	ListSnapshots(dataset string, recursive, debug bool) ([]zfs.Snapshot, error)
+	CreateManySnapshots(
+		snapshotName string,
+		datasets []zfs.Dataset,
+		recursive bool,
+		dryRun, verbose, debug, useThreads bool,
+	) error
+	DestroySnapshot(name string, dryRun, debug bool) error
+}
+
 type Tools struct {
-	client zfs.Client
+	client zfsClient
 	output io.Writer
 }
 
 // New creates orchestration tools backed by a ZFS client.
-func New(client zfs.Client, output io.Writer) Tools {
+func New(client zfsClient, output io.Writer) Tools {
 	return Tools{client: client, output: output}
 }
 
@@ -233,13 +245,7 @@ func GroupSnapshotsIntoDatasets(snaps []zfs.Snapshot, datasets []zfs.Dataset) ma
 	return result
 }
 
-func destroyZeroSizedSnapshots(
-	destroySnapshot func(string, bool, bool) error,
-	isZero func(*zfs.Snapshot, bool) bool,
-	output io.Writer,
-	snaps []zfs.Snapshot,
-	cfg config.Config,
-) []zfs.Snapshot {
+func (tools Tools) destroyZeroSizedSnapshots(snaps []zfs.Snapshot, cfg config.Config) []zfs.Snapshot {
 	if len(snaps) == 0 {
 		return nil
 	}
@@ -249,13 +255,13 @@ func destroyZeroSizedSnapshots(
 
 	for i := range snaps[1:] {
 		snap := &snaps[i+1]
-		if isZero(snap, cfg.Debug) {
+		if snap.IsZero(cfg.Debug) {
 			if cfg.Verbose {
-				_, _ = fmt.Fprintln(output, "Destroying zero-sized snapshot:", snap.Name)
+				_, _ = fmt.Fprintln(tools.output, "Destroying zero-sized snapshot:", snap.Name)
 			}
 
 			if !cfg.DryRun {
-				_ = destroySnapshot(snap.Name, cfg.DryRun, cfg.Debug)
+				_ = tools.client.DestroySnapshot(snap.Name, cfg.DryRun, cfg.Debug)
 			}
 		} else {
 			keep = append(keep, *snap)
@@ -269,29 +275,30 @@ func (tools Tools) DatasetsDestroyZeroSizedSnapshots(
 	grouped map[string][]zfs.Snapshot,
 	cfg config.Config,
 ) map[string][]zfs.Snapshot {
-	var waitGroup sync.WaitGroup
-
-	for name, snaps := range grouped {
-		waitGroup.Add(1)
-
-		go func() {
-			grouped[name] = destroyZeroSizedSnapshots(
-				tools.client.DestroySnapshot,
-				func(snapshot *zfs.Snapshot, debug bool) bool { return snapshot.IsZero(debug) },
-				tools.output,
-				snaps,
-				cfg,
-			)
-
-			waitGroup.Done()
-		}()
-
-		if !cfg.UseThreads {
-			waitGroup.Wait()
+	if !cfg.UseThreads {
+		for name, snaps := range grouped {
+			grouped[name] = tools.destroyZeroSizedSnapshots(snaps, cfg)
 		}
+
+		return grouped
 	}
 
-	waitGroup.Wait()
+	type cleanupResult struct {
+		name      string
+		snapshots []zfs.Snapshot
+	}
+
+	results := make(chan cleanupResult, len(grouped))
+	for name, snaps := range grouped {
+		go func() {
+			results <- cleanupResult{name: name, snapshots: tools.destroyZeroSizedSnapshots(snaps, cfg)}
+		}()
+	}
+
+	for range len(grouped) {
+		result := <-results
+		grouped[result.name] = result.snapshots
+	}
 
 	return grouped
 }

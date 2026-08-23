@@ -2,7 +2,9 @@ package zfstools
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -30,18 +32,19 @@ type commandCall struct {
 
 func (runner *fakeRunner) Run(name string, args ...string) ([]byte, error) {
 	runner.mu.Lock()
-	defer runner.mu.Unlock()
-
 	runner.name = name
 
 	runner.args = append([]string(nil), args...)
 	runner.calls = append(runner.calls, commandCall{name: name, args: append([]string(nil), args...)})
+	runFunc := runner.runFunc
+	output := runner.output
+	runner.mu.Unlock()
 
-	if runner.runFunc != nil {
-		return runner.runFunc(name, args...)
+	if runFunc != nil {
+		return runFunc(name, args...)
 	}
 
-	return runner.output, nil
+	return output, nil
 }
 
 func TestDoNewSnapshots(t *testing.T) {
@@ -1512,7 +1515,7 @@ func Test_snapshotName(t *testing.T) {
 	}
 }
 
-func Test_destroyZeroSizedSnapshots(t *testing.T) {
+func TestDestroyZeroSizedSnapshots(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -1521,16 +1524,12 @@ func Test_destroyZeroSizedSnapshots(t *testing.T) {
 	}
 
 	tests := []struct {
-		mockDestroySnapshotFunc func(name string, dryRun bool, debug bool) error
-		name                    string
-		want                    []zfs.Snapshot
-		args                    args
+		name string
+		want []zfs.Snapshot
+		args args
 	}{
 		{
 			name: "zeroSnapshots",
-			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
-				return nil
-			},
 			args: args{
 				snaps: nil,
 				cfg:   config.Config{},
@@ -1538,9 +1537,6 @@ func Test_destroyZeroSizedSnapshots(t *testing.T) {
 		},
 		{
 			name: "oneSnapshotNotZero",
-			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
-				return nil
-			},
 			args: args{
 				snaps: []zfs.Snapshot{
 					{
@@ -1559,9 +1555,6 @@ func Test_destroyZeroSizedSnapshots(t *testing.T) {
 		},
 		{
 			name: "oneSnapshotZero",
-			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
-				return nil
-			},
 			args: args{
 				snaps: []zfs.Snapshot{
 					{
@@ -1580,9 +1573,6 @@ func Test_destroyZeroSizedSnapshots(t *testing.T) {
 		},
 		{
 			name: "twoSnapshotsNeitherZero",
-			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
-				return nil
-			},
 			args: args{
 				snaps: []zfs.Snapshot{
 					{
@@ -1609,9 +1599,6 @@ func Test_destroyZeroSizedSnapshots(t *testing.T) {
 		},
 		{
 			name: "twoSnapshotsFirstZero",
-			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
-				return nil
-			},
 			args: args{
 				snaps: []zfs.Snapshot{
 					{
@@ -1634,9 +1621,6 @@ func Test_destroyZeroSizedSnapshots(t *testing.T) {
 		},
 		{
 			name: "twoSnapshotsSecondZero",
-			mockDestroySnapshotFunc: func(_ string, _ bool, _ bool) error {
-				return nil
-			},
 			args: args{
 				snaps: []zfs.Snapshot{
 					{
@@ -1667,11 +1651,23 @@ func Test_destroyZeroSizedSnapshots(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := destroyZeroSizedSnapshots(
-				testCase.mockDestroySnapshotFunc,
-				func(snapshot *zfs.Snapshot, _ bool) bool { return snapshot.Used == 0 },
-				io.Discard,
-				testCase.args.snaps, testCase.args.cfg)
+			var listing bytes.Buffer
+			for _, snapshot := range testCase.args.snaps {
+				_, _ = fmt.Fprintf(&listing, "%s\t%d\n", snapshot.Name, snapshot.Used)
+			}
+
+			runner := &fakeRunner{output: listing.Bytes()}
+			client := zfs.NewClient(runner, io.Discard)
+
+			snapshots, err := client.ListSnapshots("", true, false)
+			if err != nil {
+				t.Fatalf("ListSnapshots() error = %v", err)
+			}
+
+			got := New(client, io.Discard).destroyZeroSizedSnapshots(snapshots, testCase.args.cfg)
+			for i := range got {
+				got[i] = zfs.Snapshot{Name: got[i].Name, Used: got[i].Used}
+			}
 
 			diff := deep.Equal(got, testCase.want)
 			if diff != nil {
@@ -1685,17 +1681,74 @@ func TestDestroyZeroSizedSnapshotsVerboseOutput(t *testing.T) {
 	t.Parallel()
 
 	output := &bytes.Buffer{}
-	destroyZeroSizedSnapshots(
-		func(string, bool, bool) error { return nil },
-		func(*zfs.Snapshot, bool) bool { return true },
-		output,
-		[]zfs.Snapshot{{Name: "tank/a@2"}, {Name: "tank/a@1"}},
-		config.Config{DryRun: true, Verbose: true},
-	)
+	runner := &fakeRunner{output: []byte("tank/a@2\t0\ntank/a@1\t0\n")}
+	client := zfs.NewClient(runner, output)
+
+	snapshots, err := client.ListSnapshots("", true, false)
+	if err != nil {
+		t.Fatalf("ListSnapshots() error = %v", err)
+	}
+
+	New(client, output).destroyZeroSizedSnapshots(snapshots, config.Config{DryRun: true, Verbose: true})
 
 	want := "Destroying zero-sized snapshot: tank/a@1\n"
 	if got := output.String(); got != want {
 		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
+func TestDatasetsDestroyZeroSizedSnapshotsParallel(t *testing.T) {
+	t.Parallel()
+
+	var getUsed sync.WaitGroup
+	getUsed.Add(2)
+
+	runner := &fakeRunner{
+		runFunc: func(name string, args ...string) ([]byte, error) {
+			if name == "zfs" && len(args) > 0 {
+				switch args[0] {
+				case "list":
+					return []byte("tank/a@2\t1\ntank/a@1\t0\ntank/b@2\t1\ntank/b@1\t0\n"), nil
+				case "get":
+					getUsed.Done()
+					getUsed.Wait()
+
+					return []byte("0\n"), nil
+				}
+			}
+
+			return nil, nil
+		},
+	}
+	client := zfs.NewClient(runner, io.Discard)
+	tools := New(client, io.Discard)
+
+	snapshots, err := client.ListSnapshots("", true, false)
+	if err != nil {
+		t.Fatalf("ListSnapshots() error = %v", err)
+	}
+
+	grouped := GroupSnapshotsIntoDatasets(snapshots, []zfs.Dataset{{Name: "tank/a"}, {Name: "tank/b"}})
+
+	got := tools.DatasetsDestroyZeroSizedSnapshots(grouped, config.Config{UseThreads: true})
+	for name, snapshots := range got {
+		if len(snapshots) != 1 || snapshots[0].Name != name+"@2" {
+			t.Errorf("snapshots for %s = %#v, want newest snapshot only", name, snapshots)
+		}
+	}
+
+	var destroyed []string
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyed = append(destroyed, call.args[len(call.args)-1])
+		}
+	}
+
+	slices.Sort(destroyed)
+
+	if diff := deep.Equal(destroyed, []string{"tank/a@1", "tank/b@1"}); diff != nil {
+		t.Errorf("destroyed snapshots differ: %v", diff)
 	}
 }
 

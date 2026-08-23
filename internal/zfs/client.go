@@ -32,18 +32,14 @@ type Client struct {
 	runner        Runner
 	output        io.Writer
 	snapshotState *snapshotState
-	hasMultiSnap  func(bool) bool
+	featureCache  *featureCache
 }
 
 // NewClient creates a ZFS client using the supplied command runner.
 func NewClient(runner Runner, output io.Writer) Client {
-	client := Client{runner: runner, output: output, snapshotState: &snapshotState{}}
-	detector := &featureDetector{}
-	client.hasMultiSnap = func(debug bool) bool {
-		return detector.hasMultiSnap(client.ListPools, debug)
+	return Client{
+		runner: runner, output: output, snapshotState: &snapshotState{}, featureCache: &featureCache{},
 	}
-
-	return client
 }
 
 // NewSystemClient creates a ZFS client backed by operating-system commands.

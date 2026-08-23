@@ -1,35 +1,27 @@
 package zfs
 
-import "testing"
+import (
+	"io"
+	"testing"
+)
 
-func TestFeatureDetectorHasBookmarks(t *testing.T) {
+func TestHasBookmarks(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		listPools func(string, []string, bool) ([]Pool, error)
-		name      string
-		want      bool
+		err    error
+		name   string
+		output string
+		want   bool
 	}{
 		{
-			name: "supported",
-			listPools: func(_ string, _ []string, _ bool) ([]Pool, error) {
-				return []Pool{{Properties: map[string]string{"feature@bookmarks": "enabled"}}}, nil
-			},
-			want: true,
+			name: "supported", output: "pool\tfeature@bookmarks\tenabled\n", want: true,
 		},
 		{
-			name: "unsupported",
-			listPools: func(_ string, _ []string, _ bool) ([]Pool, error) {
-				return []Pool{{Properties: map[string]string{}}}, nil
-			},
-			want: false,
+			name: "unsupported", output: "pool\tother-feature\tenabled\n",
 		},
 		{
-			name: "error",
-			listPools: func(_ string, _ []string, _ bool) ([]Pool, error) {
-				return nil, errTestCommand
-			},
-			want: false,
+			name: "error", err: errTestCommand,
 		},
 	}
 
@@ -37,36 +29,24 @@ func TestFeatureDetectorHasBookmarks(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			detector := &featureDetector{}
-			if got := detector.hasBookmarks(testCase.listPools, false); got != testCase.want {
+			client := NewClient(&fakeRunner{output: []byte(testCase.output), err: testCase.err}, io.Discard)
+			if got := client.hasBookmarks(false); got != testCase.want {
 				t.Errorf("hasBookmarks() = %v, want %v", got, testCase.want)
 			}
 		})
 	}
 }
 
-func TestFeatureDetectorHasMultiSnap(t *testing.T) {
+func TestHasBookmarksCachesResult(t *testing.T) {
 	t.Parallel()
 
-	for _, testCase := range []struct {
-		name string
-		pool Pool
-		want bool
-	}{
-		{name: "supported", pool: Pool{Properties: map[string]string{"feature@bookmarks": "enabled"}}, want: true},
-		{name: "unsupported", pool: Pool{Properties: map[string]string{}}, want: false},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
+	runner := &fakeRunner{output: []byte("pool\tfeature@bookmarks\tenabled\n")}
+	client := NewClient(runner, io.Discard)
 
-			detector := &featureDetector{}
-			listPools := func(_ string, _ []string, _ bool) ([]Pool, error) {
-				return []Pool{testCase.pool}, nil
-			}
+	client.hasBookmarks(false)
+	client.hasBookmarks(false)
 
-			if got := detector.hasMultiSnap(listPools, false); got != testCase.want {
-				t.Errorf("hasMultiSnap() = %v, want %v", got, testCase.want)
-			}
-		})
+	if got := len(runner.calls); got != 1 {
+		t.Errorf("ListPools() call count = %d, want 1", got)
 	}
 }

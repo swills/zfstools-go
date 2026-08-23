@@ -37,7 +37,7 @@ func TestClientDiagnosticOutput(t *testing.T) {
 		{
 			name: "create snapshot",
 			run: func(client Client) {
-				_ = client.CreateSnapshot([]string{"pool/fs@snap"}, false, "", true, true, false)
+				_ = client.CreateSnapshots([]string{"pool/fs"}, "snap", false, "", true, true, false)
 			},
 			want: "zfs snapshot pool/fs@snap\n",
 		},
