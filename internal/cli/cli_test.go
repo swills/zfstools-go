@@ -176,12 +176,13 @@ func TestUsageWriters(t *testing.T) {
 		{
 			name:  "/usr/local/sbin/zfs-auto-snapshot",
 			write: func(writer *bytes.Buffer, name string) { writeAutoSnapshotUsage(writer, name) },
-			want: `Usage: /usr/local/sbin/zfs-auto-snapshot [-dknpuv] <INTERVAL> <KEEP>
+			want: `Usage: /usr/local/sbin/zfs-auto-snapshot [-dknpuv] [-P pool] [-s prefix] <INTERVAL> <KEEP>
     -d              Show debug output.
     -k              Keep zero-sized snapshots.
     -n              Do a dry-run. Nothing is committed. Only show what would be done.
     -p              Create snapshots in parallel.
     -P pool         Act only on the specified pool.
+    -s prefix       Set the generated snapshot prefix.
     -u              Use UTC for snapshots.
     -v              Show what is being done.
     INTERVAL        The interval to snapshot.
@@ -191,10 +192,10 @@ func TestUsageWriters(t *testing.T) {
 		{
 			name:  "/usr/sbin/zfs-cleanup-snapshots",
 			write: func(writer *bytes.Buffer, name string) { writeCleanupUsage(writer, name) },
-			want: `Usage: /usr/sbin/zfs-cleanup-snapshots [-dnv]
+			want: `Usage: /usr/sbin/zfs-cleanup-snapshots [-dnpv] [-P pool]
     -d              Show debug output.
     -n              Do a dry-run. Nothing is committed. Only show what would be done.
-    -p              Create snapshots in parallel.
+    -p              Destroy snapshots in parallel.
     -P pool         Act only on the specified pool.
     -v              Show what is being done.
 `,

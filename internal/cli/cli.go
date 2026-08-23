@@ -297,12 +297,13 @@ func writeVersion(writer io.Writer, version, commit string) {
 }
 
 func writeAutoSnapshotUsage(writer io.Writer, name string) {
-	_, _ = fmt.Fprintf(writer, "Usage: %s [-dknpuv] <INTERVAL> <KEEP>\n", name)
+	_, _ = fmt.Fprintf(writer, "Usage: %s [-dknpuv] [-P pool] [-s prefix] <INTERVAL> <KEEP>\n", name)
 	_, _ = fmt.Fprintln(writer, "    -d              Show debug output.")
 	_, _ = fmt.Fprintln(writer, "    -k              Keep zero-sized snapshots.")
 	_, _ = fmt.Fprintln(writer, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
 	_, _ = fmt.Fprintln(writer, "    -p              Create snapshots in parallel.")
 	_, _ = fmt.Fprintln(writer, "    -P pool         Act only on the specified pool.")
+	_, _ = fmt.Fprintln(writer, "    -s prefix       Set the generated snapshot prefix.")
 	_, _ = fmt.Fprintln(writer, "    -u              Use UTC for snapshots.")
 	_, _ = fmt.Fprintln(writer, "    -v              Show what is being done.")
 	_, _ = fmt.Fprintln(writer, "    INTERVAL        The interval to snapshot.")
@@ -310,10 +311,10 @@ func writeAutoSnapshotUsage(writer io.Writer, name string) {
 }
 
 func writeCleanupUsage(writer io.Writer, name string) {
-	_, _ = fmt.Fprintf(writer, "Usage: %s [-dnv]\n", name)
+	_, _ = fmt.Fprintf(writer, "Usage: %s [-dnpv] [-P pool]\n", name)
 	_, _ = fmt.Fprintln(writer, "    -d              Show debug output.")
 	_, _ = fmt.Fprintln(writer, "    -n              Do a dry-run. Nothing is committed. Only show what would be done.")
-	_, _ = fmt.Fprintln(writer, "    -p              Create snapshots in parallel.")
+	_, _ = fmt.Fprintln(writer, "    -p              Destroy snapshots in parallel.")
 	_, _ = fmt.Fprintln(writer, "    -P pool         Act only on the specified pool.")
 	_, _ = fmt.Fprintln(writer, "    -v              Show what is being done.")
 }
