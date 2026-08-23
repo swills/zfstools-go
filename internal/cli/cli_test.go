@@ -225,3 +225,67 @@ func TestRunCleanupSnapshotsOptions(t *testing.T) {
 		})
 	}
 }
+
+func TestRunReportsParseErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		command string
+		want    string
+		args    []string
+	}{
+		{name: "auto unknown long", command: autoSnapshotName, args: []string{"--bogus"}, want: "unknown flag"},
+		{name: "cleanup unknown long", command: cleanupName, args: []string{"--bogus"}, want: "unknown flag"},
+		{name: "mysql unknown long", command: mysqlName, args: []string{"--bogus"}, want: "unknown flag"},
+		{
+			name: "auto missing pool", command: autoSnapshotName, args: []string{"--pool"},
+			want: "flag needs an argument",
+		},
+		{
+			name: "cleanup missing pool", command: cleanupName, args: []string{"--pool"},
+			want: "flag needs an argument",
+		},
+		{name: "mysql invalid shorthand", command: mysqlName, args: []string{"-x"}, want: "unknown shorthand flag"},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			stderr := &bytes.Buffer{}
+
+			code := Run(testCase.command, testCase.args, &bytes.Buffer{}, stderr, "dev", "none")
+			if code != 2 {
+				t.Errorf("Run() code = %d, want 2", code)
+			}
+
+			for _, value := range []string{testCase.want, "Usage:"} {
+				if !strings.Contains(stderr.String(), value) {
+					t.Errorf("Run() stderr = %q, want substring %q", stderr.String(), value)
+				}
+			}
+		})
+	}
+}
+
+func TestRunHelp(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{autoSnapshotName, cleanupName, mysqlName} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			stderr := &bytes.Buffer{}
+
+			code := Run(command, []string{"--help"}, &bytes.Buffer{}, stderr, "dev", "none")
+			if code != 0 {
+				t.Errorf("Run() code = %d, want 0", code)
+			}
+
+			if !strings.Contains(stderr.String(), "Usage:") {
+				t.Errorf("Run() stderr = %q, want usage", stderr.String())
+			}
+		})
+	}
+}
