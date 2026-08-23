@@ -756,7 +756,11 @@ func assertFindEligibleDatasets(
 
 	runner := &fakeRunner{output: findEligibleDatasetsOutput(outputName)}
 	client := zfs.NewClient(runner, io.Discard)
-	got := New(client, io.Discard).FindEligibleDatasets(t.Context(), cfg, pool)
+
+	got, err := New(client, io.Discard).FindEligibleDatasets(t.Context(), cfg, pool)
+	if err != nil {
+		t.Fatalf("FindEligibleDatasets() error = %v", err)
+	}
 
 	diff := deep.Equal(got, want)
 	if diff != nil {
@@ -773,6 +777,24 @@ func assertFindEligibleDatasets(
 
 	if runner.name != "zfs" || deep.Equal(runner.args, wantArgs) != nil {
 		t.Errorf("command = %s %v, want zfs %v", runner.name, runner.args, wantArgs)
+	}
+}
+
+func TestFindEligibleDatasetsListError(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{runFunc: func(string, ...string) ([]byte, error) {
+		return nil, errTestCommand
+	}}
+	tools := New(zfs.NewClient(runner, io.Discard), io.Discard)
+
+	got, err := tools.FindEligibleDatasets(t.Context(), config.Config{Interval: "daily"}, "")
+	if !errors.Is(err, errTestCommand) {
+		t.Fatalf("FindEligibleDatasets() error = %v, want command error", err)
+	}
+
+	if got != nil {
+		t.Fatalf("FindEligibleDatasets() = %v, want nil result", got)
 	}
 }
 
@@ -1848,7 +1870,9 @@ func TestCleanupExpiredSnapshots(t *testing.T) {
 	}
 	cfg := config.Config{Interval: "daily", Keep: 1, ShouldDestroyZeroSized: true}
 
-	tools.CleanupExpiredSnapshots(t.Context(), cfg, "tank", datasets)
+	if err := tools.CleanupExpiredSnapshots(t.Context(), cfg, "tank", datasets); err != nil {
+		t.Fatalf("CleanupExpiredSnapshots() error = %v", err)
+	}
 
 	var destroyed []string
 
@@ -1867,6 +1891,24 @@ func TestCleanupExpiredSnapshots(t *testing.T) {
 	}}
 	if diff := deep.Equal(runner.calls[0], wantList); diff != nil {
 		t.Errorf("list command differs: %v", diff)
+	}
+}
+
+func TestCleanupExpiredSnapshotsListError(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{runFunc: func(string, ...string) ([]byte, error) {
+		return nil, errTestCommand
+	}}
+	tools := New(zfs.NewClient(runner, io.Discard), io.Discard)
+
+	err := tools.CleanupExpiredSnapshots(t.Context(), config.Config{}, "tank", nil)
+	if !errors.Is(err, errTestCommand) {
+		t.Fatalf("CleanupExpiredSnapshots() error = %v, want command error", err)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Errorf("command count = %d, want snapshot listing only", len(runner.calls))
 	}
 }
 

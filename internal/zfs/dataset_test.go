@@ -1,20 +1,39 @@
 package zfs
 
 import (
+	"errors"
 	"io"
 	"testing"
 
 	"github.com/go-test/deep"
 )
 
+var errTestReader = errors.New("test reader failed")
+
+type errorReader struct {
+	data []byte
+}
+
+func (reader *errorReader) Read(destination []byte) (int, error) {
+	if len(reader.data) == 0 {
+		return 0, errTestReader
+	}
+
+	count := copy(destination, reader.data)
+	reader.data = reader.data[count:]
+
+	return count, nil
+}
+
 func TestListDatasets(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr    error
 		name       string
 		pool       string
-		properties []string
 		output     string
+		properties []string
 		wantArgs   []string
 		want       []Dataset
 	}{
@@ -62,9 +81,7 @@ func TestListDatasets(t *testing.T) {
 				"list", "-H", "-t", "filesystem,volume", "-o",
 				"name,type,com.sun:auto-snapshot", "-s", "name",
 			},
-			want: []Dataset{{Name: "valid", Properties: map[string]string{
-				"type": "filesystem", "com.sun:auto-snapshot": "true",
-			}}},
+			wantErr: errInvalidDatasetOutput,
 		},
 	}
 
@@ -73,7 +90,13 @@ func TestListDatasets(t *testing.T) {
 			t.Parallel()
 
 			runner := &fakeRunner{output: []byte(testCase.output)}
-			got := NewClient(runner, io.Discard).ListDatasets(t.Context(), testCase.pool, testCase.properties, false)
+
+			got, err := NewClient(runner, io.Discard).ListDatasets(
+				t.Context(), testCase.pool, testCase.properties, false,
+			)
+			if !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("ListDatasets() error = %v, want %v", err, testCase.wantErr)
+			}
 
 			if diff := deep.Equal(got, testCase.want); diff != nil {
 				t.Errorf("datasets differ: %v", diff)
@@ -90,8 +113,29 @@ func TestListDatasets(t *testing.T) {
 func TestListDatasetsCommandError(t *testing.T) {
 	t.Parallel()
 
-	runner := &fakeRunner{err: errTestCommand}
-	if got := NewClient(runner, io.Discard).ListDatasets(t.Context(), "", nil, false); len(got) != 0 {
-		t.Fatalf("ListDatasets() = %v, want empty result", got)
+	runner := &fakeRunner{output: []byte("tank/data\tfilesystem\n"), err: errTestCommand}
+
+	got, err := NewClient(runner, io.Discard).ListDatasets(t.Context(), "", nil, false)
+	if !errors.Is(err, errTestCommand) {
+		t.Fatalf("ListDatasets() error = %v, want command error", err)
+	}
+
+	if got != nil {
+		t.Fatalf("ListDatasets() = %v, want nil result", got)
+	}
+}
+
+func TestParseDatasetsReaderError(t *testing.T) {
+	t.Parallel()
+
+	reader := &errorReader{data: []byte("tank/data\tfilesystem\n")}
+
+	got, err := parseDatasets(reader, nil)
+	if !errors.Is(err, errTestReader) {
+		t.Fatalf("parseDatasets() error = %v, want reader error", err)
+	}
+
+	if got != nil {
+		t.Fatalf("parseDatasets() = %v, want nil result", got)
 	}
 }

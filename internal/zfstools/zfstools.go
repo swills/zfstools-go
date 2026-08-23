@@ -17,7 +17,7 @@ const snapshotProperty = "com.sun:auto-snapshot"
 const snapshotFormat = "2006-01-02-15h04"
 
 type zfsClient interface {
-	ListDatasets(ctx context.Context, pool string, properties []string, debug bool) []zfs.Dataset
+	ListDatasets(ctx context.Context, pool string, properties []string, debug bool) ([]zfs.Dataset, error)
 	ListSnapshots(ctx context.Context, dataset string, recursive, debug bool) ([]zfs.Snapshot, error)
 	CreateManySnapshots(
 		ctx context.Context,
@@ -197,14 +197,17 @@ func (tools Tools) FindEligibleDatasets(
 	ctx context.Context,
 	cfg config.Config,
 	pool string,
-) map[string][]zfs.Dataset {
+) (map[string][]zfs.Dataset, error) {
 	props := []string{
 		snapshotProperty + ":" + cfg.Interval,
 		snapshotProperty,
 		"mounted",
 	}
 
-	all := tools.client.ListDatasets(ctx, pool, props, cfg.Debug)
+	all, err := tools.client.ListDatasets(ctx, pool, props, cfg.Debug)
+	if err != nil {
+		return nil, fmt.Errorf("find eligible datasets: %w", err)
+	}
 
 	var included []zfs.Dataset
 
@@ -216,7 +219,7 @@ func (tools Tools) FindEligibleDatasets(
 	return findRecursiveDatasets(map[string][]zfs.Dataset{
 		"included": included,
 		"excluded": excluded,
-	})
+	}), nil
 }
 
 // DoNewSnapshots creates the single and recursive snapshots.
@@ -335,8 +338,11 @@ func (tools Tools) CleanupExpiredSnapshots(
 	cfg config.Config,
 	pool string,
 	datasets map[string][]zfs.Dataset,
-) {
-	snaps, _ := tools.client.ListSnapshots(ctx, pool, true, cfg.Debug)
+) error {
+	snaps, err := tools.client.ListSnapshots(ctx, pool, true, cfg.Debug)
+	if err != nil {
+		return fmt.Errorf("list snapshots for cleanup: %w", err)
+	}
 
 	var filtered []zfs.Snapshot
 
@@ -401,4 +407,6 @@ func (tools Tools) CleanupExpiredSnapshots(
 	}
 
 	waitGroup.Wait()
+
+	return nil
 }

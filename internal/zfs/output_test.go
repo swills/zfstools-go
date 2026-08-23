@@ -17,7 +17,7 @@ func TestClientDiagnosticOutput(t *testing.T) {
 		{
 			name: "datasets",
 			run: func(ctx context.Context, client Client) {
-				client.ListDatasets(ctx, "", nil, true)
+				_, _ = client.ListDatasets(ctx, "", nil, true)
 			},
 			want: "zfs list -H -t filesystem,volume -o name,type -s name\n",
 		},

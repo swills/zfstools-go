@@ -25,6 +25,8 @@ var ErrNoDatasets = errors.New("no dataset(s) specified")
 
 var ErrOneSnapshotOfManyErrored = errors.New("some snapshots failed to create")
 
+var errInvalidSnapshotOutput = errors.New("invalid zfs snapshot output")
+
 type Snapshot struct {
 	runner Runner
 	output io.Writer
@@ -95,30 +97,53 @@ func (client Client) ListSnapshots(
 	}
 
 	reader, done := client.stream(ctx, "zfs", args...)
-	snapshots := parseSnapshots(reader, client.runner, client.output, client.snapshotState)
+	snapshots, parseErr := parseSnapshots(reader, client.runner, client.output, client.snapshotState)
 	_ = reader.Close()
 
-	err := <-done
-	if err != nil {
-		return nil, fmt.Errorf("error listing snapshots: %w", err)
+	runErr := <-done
+	if runErr != nil {
+		runErr = fmt.Errorf("error listing snapshots: %w", runErr)
+	}
+
+	if err := errors.Join(parseErr, runErr); err != nil {
+		return nil, err
 	}
 
 	return snapshots, nil
 }
 
-func parseSnapshots(reader io.Reader, runner Runner, output io.Writer, state *snapshotState) []Snapshot {
+func parseSnapshots(
+	reader io.Reader,
+	runner Runner,
+	output io.Writer,
+	state *snapshotState,
+) ([]Snapshot, error) {
 	var snapshots []Snapshot
+
+	var parseErr error
 
 	scanner := bufio.NewScanner(reader)
 
+	lineNumber := 0
 	for scanner.Scan() {
+		lineNumber++
+
 		parts := strings.Split(scanner.Text(), "\t")
 		if len(parts) != snapshotFieldCount {
+			parseErr = errors.Join(parseErr, fmt.Errorf(
+				"%w on line %d: got %d fields, want %d",
+				errInvalidSnapshotOutput, lineNumber, len(parts), snapshotFieldCount,
+			))
+
 			continue
 		}
 
 		size, err := strconv.ParseInt(parts[1], 10, 64)
 		if err != nil {
+			parseErr = errors.Join(parseErr, fmt.Errorf(
+				"%w on line %d: parse used value: %w", errInvalidSnapshotOutput, lineNumber, err,
+			))
+
 			continue
 		}
 
@@ -127,7 +152,15 @@ func parseSnapshots(reader io.Reader, runner Runner, output io.Writer, state *sn
 		})
 	}
 
-	return snapshots
+	if err := scanner.Err(); err != nil {
+		parseErr = errors.Join(parseErr, fmt.Errorf("scan snapshot output: %w", err))
+	}
+
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	return snapshots, nil
 }
 
 // CreateSnapshots creates snapshots using the client's command runner.

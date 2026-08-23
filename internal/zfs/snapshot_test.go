@@ -103,6 +103,7 @@ func TestListSnapshots(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr   error
 		name      string
 		dataset   string
 		output    string
@@ -134,7 +135,7 @@ func TestListSnapshots(t *testing.T) {
 			name:     "malformed rows",
 			output:   "invalid\ninvalid@size\tnot-a-number\n",
 			wantArgs: []string{"list", "-H", "-p", "-t", "snapshot", "-o", "name,used", "-S", "name"},
-			want:     []Snapshot{},
+			wantErr:  errInvalidSnapshotOutput,
 		},
 	}
 
@@ -147,17 +148,23 @@ func TestListSnapshots(t *testing.T) {
 			got, err := NewClient(runner, io.Discard).ListSnapshots(
 				t.Context(), testCase.dataset, testCase.recursive, false,
 			)
-			if err != nil {
-				t.Fatalf("ListSnapshots() error = %v", err)
+			if !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("ListSnapshots() error = %v, want %v", err, testCase.wantErr)
 			}
 
-			publicGot := make([]Snapshot, len(got))
-			for i := range got {
-				publicGot[i] = Snapshot{Name: got[i].Name, Used: got[i].Used}
-			}
+			if testCase.wantErr != nil {
+				if got != nil {
+					t.Errorf("ListSnapshots() = %v, want nil result", got)
+				}
+			} else {
+				publicGot := make([]Snapshot, len(got))
+				for i := range got {
+					publicGot[i] = Snapshot{Name: got[i].Name, Used: got[i].Used}
+				}
 
-			if diff := deep.Equal(publicGot, testCase.want); diff != nil {
-				t.Errorf("snapshots differ: %v", diff)
+				if diff := deep.Equal(publicGot, testCase.want); diff != nil {
+					t.Errorf("snapshots differ: %v", diff)
+				}
 			}
 
 			wantCall := []commandCall{{name: "zfs", args: testCase.wantArgs}}
@@ -168,12 +175,33 @@ func TestListSnapshots(t *testing.T) {
 	}
 }
 
+func TestParseSnapshotsReaderError(t *testing.T) {
+	t.Parallel()
+
+	reader := &errorReader{data: []byte("tank/data@snap\t1\n")}
+
+	got, err := parseSnapshots(reader, &fakeRunner{}, io.Discard, &snapshotState{})
+	if !errors.Is(err, errTestReader) {
+		t.Fatalf("parseSnapshots() error = %v, want reader error", err)
+	}
+
+	if got != nil {
+		t.Fatalf("parseSnapshots() = %v, want nil result", got)
+	}
+}
+
 func TestListSnapshotsCommandError(t *testing.T) {
 	t.Parallel()
 
-	runner := &fakeRunner{err: errTestCommand}
-	if _, err := NewClient(runner, io.Discard).ListSnapshots(t.Context(), "", false, false); err == nil {
-		t.Fatal("ListSnapshots() error = nil, want command error")
+	runner := &fakeRunner{output: []byte("tank/data@snap\t1\n"), err: errTestCommand}
+
+	got, err := NewClient(runner, io.Discard).ListSnapshots(t.Context(), "", false, false)
+	if !errors.Is(err, errTestCommand) {
+		t.Fatalf("ListSnapshots() error = %v, want command error", err)
+	}
+
+	if got != nil {
+		t.Fatalf("ListSnapshots() = %v, want nil result", got)
 	}
 }
 

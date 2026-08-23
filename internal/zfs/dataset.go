@@ -3,10 +3,15 @@ package zfs
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 )
+
+const datasetMetadataFieldCount = 2
+
+var errInvalidDatasetOutput = errors.New("invalid zfs dataset output")
 
 type Dataset struct {
 	Name       string
@@ -14,8 +19,14 @@ type Dataset struct {
 	DB         string
 }
 
-// ListDatasets returns a list of ZFS datasets using the client's command executor.
-func (client Client) ListDatasets(ctx context.Context, pool string, properties []string, debug bool) []Dataset {
+// ListDatasets returns ZFS datasets using the client's command runner. It
+// returns an error rather than exposing incomplete discovery results.
+func (client Client) ListDatasets(
+	ctx context.Context,
+	pool string,
+	properties []string,
+	debug bool,
+) ([]Dataset, error) {
 	cmdProperties := append([]string{"name", "type"}, properties...)
 
 	args := []string{"list", "-H", "-t", "filesystem,volume", "-o", strings.Join(cmdProperties, ","), "-s", "name"}
@@ -28,26 +39,41 @@ func (client Client) ListDatasets(ctx context.Context, pool string, properties [
 	}
 
 	reader, done := client.stream(ctx, "zfs", args...)
-	datasets := parseDatasets(reader, properties)
+	datasets, parseErr := parseDatasets(reader, properties)
 	_ = reader.Close()
 
-	err := <-done
-	if err != nil {
-		return nil
+	runErr := <-done
+	if runErr != nil {
+		runErr = fmt.Errorf("list datasets: %w", runErr)
 	}
 
-	return datasets
+	if err := errors.Join(parseErr, runErr); err != nil {
+		return nil, err
+	}
+
+	return datasets, nil
 }
 
-func parseDatasets(reader io.Reader, properties []string) []Dataset {
+func parseDatasets(reader io.Reader, properties []string) ([]Dataset, error) {
 	var datasets []Dataset
+
+	var parseErr error
 
 	scanner := bufio.NewScanner(reader)
 
+	lineNumber := 0
 	for scanner.Scan() {
-		values := strings.Split(scanner.Text(), "\t")
+		lineNumber++
 
-		if len(values) != len(properties)+2 {
+		values := strings.Split(scanner.Text(), "\t")
+		wantFields := len(properties) + datasetMetadataFieldCount
+
+		if len(values) != wantFields {
+			parseErr = errors.Join(parseErr, fmt.Errorf(
+				"%w on line %d: got %d fields, want %d",
+				errInvalidDatasetOutput, lineNumber, len(values), wantFields,
+			))
+
 			continue
 		}
 
@@ -77,5 +103,13 @@ func parseDatasets(reader io.Reader, properties []string) []Dataset {
 		datasets = append(datasets, dataset)
 	}
 
-	return datasets
+	if err := scanner.Err(); err != nil {
+		parseErr = errors.Join(parseErr, fmt.Errorf("scan dataset output: %w", err))
+	}
+
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	return datasets, nil
 }
