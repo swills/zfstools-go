@@ -284,16 +284,20 @@ func (tools Tools) destroyZeroSizedSnapshots(
 
 	for i := range snaps[1:] {
 		snap := &snaps[i+1]
-		if snap.IsZero(ctx, cfg.Debug) {
-			if cfg.Verbose {
-				_, _ = fmt.Fprintln(tools.output, "Destroying zero-sized snapshot:", snap.Name)
-			}
 
-			if !cfg.DryRun {
-				_ = tools.client.DestroySnapshot(ctx, snap.Name, cfg.DryRun, cfg.Debug)
-			}
-		} else {
+		used, err := snap.GetUsed(ctx, cfg.Debug)
+		if err != nil || used != 0 {
 			keep = append(keep, *snap)
+
+			continue
+		}
+
+		if cfg.Verbose {
+			_, _ = fmt.Fprintln(tools.output, "Destroying zero-sized snapshot:", snap.Name)
+		}
+
+		if !cfg.DryRun {
+			_ = tools.client.DestroySnapshot(ctx, snap.Name, cfg.DryRun, cfg.Debug)
 		}
 	}
 

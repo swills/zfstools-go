@@ -1775,6 +1775,51 @@ func TestDestroyZeroSizedSnapshots(t *testing.T) {
 	}
 }
 
+func TestDestroyZeroSizedSnapshotsRetainsUnknownSize(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
+		switch args[0] {
+		case "list":
+			return []byte("tank/a@3\t1\ntank/a@2\t0\ntank/a@1\t0\n"), nil
+		case "get":
+			return nil, errTestCommand
+		default:
+			return nil, nil
+		}
+	}}
+	client := zfs.NewClient(runner, io.Discard)
+
+	snapshots, err := client.ListSnapshots(t.Context(), "", true, false)
+	if err != nil {
+		t.Fatalf("ListSnapshots() error = %v", err)
+	}
+
+	got := New(client, io.Discard).destroyZeroSizedSnapshots(t.Context(), snapshots, config.Config{})
+
+	names := make([]string, len(got))
+	for i := range got {
+		names[i] = got[i].Name
+	}
+
+	want := []string{"tank/a@3", "tank/a@1"}
+	if !slices.Equal(names, want) {
+		t.Errorf("retained snapshots = %v, want %v", names, want)
+	}
+
+	var destroyed []string
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyed = append(destroyed, call.args[len(call.args)-1])
+		}
+	}
+
+	if !slices.Equal(destroyed, []string{"tank/a@2"}) {
+		t.Errorf("destroyed snapshots = %v, want tank/a@2", destroyed)
+	}
+}
+
 func TestDestroyZeroSizedSnapshotsVerboseOutput(t *testing.T) {
 	t.Parallel()
 
@@ -1800,9 +1845,6 @@ func TestDestroyZeroSizedSnapshotsVerboseOutput(t *testing.T) {
 func TestDatasetsDestroyZeroSizedSnapshotsParallel(t *testing.T) {
 	t.Parallel()
 
-	var getUsed sync.WaitGroup
-	getUsed.Add(2)
-
 	runner := &fakeRunner{
 		runFunc: func(name string, args ...string) ([]byte, error) {
 			if name == "zfs" && len(args) > 0 {
@@ -1810,9 +1852,6 @@ func TestDatasetsDestroyZeroSizedSnapshotsParallel(t *testing.T) {
 				case "list":
 					return []byte("tank/a@2\t1\ntank/a@1\t0\ntank/b@2\t1\ntank/b@1\t0\n"), nil
 				case "get":
-					getUsed.Done()
-					getUsed.Wait()
-
 					return []byte("0\n"), nil
 				}
 			}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/go-test/deep"
@@ -35,7 +36,12 @@ func TestSnapshotGetUsed(t *testing.T) {
 			localRunner := &fakeRunner{output: runner.output}
 			snapshot := Snapshot{Name: "pool/fs@snap", Used: testCase.used, runner: localRunner, state: localState}
 
-			if got := snapshot.GetUsed(t.Context(), false); got != testCase.want {
+			got, err := snapshot.GetUsed(t.Context(), false)
+			if err != nil {
+				t.Fatalf("GetUsed() error = %v", err)
+			}
+
+			if got != testCase.want {
 				t.Errorf("GetUsed() = %d, want %d", got, testCase.want)
 			}
 
@@ -57,12 +63,13 @@ func TestSnapshotGetUsedErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		err    error
-		name   string
-		output string
+		err     error
+		wantErr error
+		name    string
+		output  string
 	}{
-		{name: "command error", err: errTestCommand},
-		{name: "invalid size", output: "invalid\n"},
+		{name: "command error", err: errTestCommand, wantErr: errTestCommand},
+		{name: "invalid size", output: "invalid\n", wantErr: strconv.ErrSyntax},
 	}
 
 	for _, testCase := range tests {
@@ -72,7 +79,13 @@ func TestSnapshotGetUsedErrors(t *testing.T) {
 			runner := &fakeRunner{output: []byte(testCase.output), err: testCase.err}
 
 			snapshot := Snapshot{Name: "pool/fs@snap", runner: runner, state: &snapshotState{}}
-			if got := snapshot.GetUsed(t.Context(), false); got != 0 {
+
+			got, err := snapshot.GetUsed(t.Context(), false)
+			if !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("GetUsed() error = %v, want %v", err, testCase.wantErr)
+			}
+
+			if got != 0 {
 				t.Errorf("GetUsed() = %d, want 0", got)
 			}
 		})
@@ -83,19 +96,14 @@ func TestSnapshotGetUsedUsesCachedValueWithoutClient(t *testing.T) {
 	t.Parallel()
 
 	snapshot := Snapshot{Used: 1024}
-	if got := snapshot.GetUsed(t.Context(), false); got != 1024 {
-		t.Errorf("GetUsed() = %d, want 1024", got)
+
+	got, err := snapshot.GetUsed(t.Context(), false)
+	if err != nil {
+		t.Fatalf("GetUsed() error = %v", err)
 	}
-}
 
-func TestSnapshotIsZero(t *testing.T) {
-	t.Parallel()
-
-	runner := &fakeRunner{output: []byte("0\n")}
-
-	snapshot := Snapshot{Name: "pool/fs@snap", runner: runner, state: &snapshotState{}}
-	if !snapshot.IsZero(t.Context(), false) {
-		t.Fatal("IsZero() = false, want true")
+	if got != 1024 {
+		t.Errorf("GetUsed() = %d, want 1024", got)
 	}
 }
 
@@ -699,11 +707,16 @@ func TestDestroySnapshotInvalidatesClientSnapshots(t *testing.T) {
 		t.Fatalf("ListSnapshots() error = %v", err)
 	}
 
-	if err := client.DestroySnapshot(t.Context(), "pool/fs@old", false, false); err != nil {
-		t.Fatalf("DestroySnapshot() error = %v", err)
+	if destroyErr := client.DestroySnapshot(t.Context(), "pool/fs@old", false, false); destroyErr != nil {
+		t.Fatalf("DestroySnapshot() error = %v", destroyErr)
 	}
 
-	if got := snapshots[0].GetUsed(t.Context(), false); got != 4096 {
+	got, err := snapshots[0].GetUsed(t.Context(), false)
+	if err != nil {
+		t.Fatalf("GetUsed() error = %v", err)
+	}
+
+	if got != 4096 {
 		t.Errorf("GetUsed() after destroy = %d, want 4096", got)
 	}
 
@@ -720,10 +733,16 @@ func TestDestroySnapshotErrorAndDryRun(t *testing.T) {
 		t.Parallel()
 
 		runner := &fakeRunner{err: errTestCommand}
-		if err := NewClient(runner, io.Discard).DestroySnapshot(
+
+		client := NewClient(runner, io.Discard)
+		if err := client.DestroySnapshot(
 			t.Context(), "pool/fs@snap", false, false,
 		); err == nil {
 			t.Fatal("DestroySnapshot() error = nil, want command error")
+		}
+
+		if client.snapshotState.stale.Load() {
+			t.Error("failed destroy invalidated snapshot state")
 		}
 	})
 
@@ -741,8 +760,8 @@ func TestDestroySnapshotErrorAndDryRun(t *testing.T) {
 			t.Errorf("Run calls = %d, want 0", len(runner.calls))
 		}
 
-		if !client.snapshotState.stale.Load() {
-			t.Error("snapshot state was not invalidated")
+		if client.snapshotState.stale.Load() {
+			t.Error("dry run invalidated snapshot state")
 		}
 	})
 }

@@ -73,7 +73,7 @@ func TestSnapshotGetUsedDiagnosticOutput(t *testing.T) {
 		Name: "pool/fs@snap", runner: &fakeRunner{output: []byte("0\n")},
 		output: output, state: &snapshotState{},
 	}
-	snapshot.GetUsed(t.Context(), true)
+	_, _ = snapshot.GetUsed(t.Context(), true)
 
 	want := "zfs get -Hp -o value used pool/fs@snap\n"
 	if got := output.String(); got != want {

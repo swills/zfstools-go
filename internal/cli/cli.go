@@ -212,7 +212,12 @@ func runCleanupSnapshots(
 
 	filtered := make([]zfs.Snapshot, 0, len(snapshots))
 	for _, snapshot := range snapshots {
-		if !strings.Contains(snapshot.Name, "zfs-auto-snap_") && snapshot.IsZero(ctx, cfg.Debug) {
+		used, sizeErr := snapshot.GetUsed(ctx, cfg.Debug)
+		if sizeErr != nil {
+			continue
+		}
+
+		if !strings.Contains(snapshot.Name, "zfs-auto-snap_") && used == 0 {
 			filtered = append(filtered, snapshot)
 		}
 	}

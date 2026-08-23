@@ -28,22 +28,25 @@ var ErrOneSnapshotOfManyErrored = errors.New("some snapshots failed to create")
 var errInvalidSnapshotOutput = errors.New("invalid zfs snapshot output")
 
 type Snapshot struct {
-	runner Runner
-	output io.Writer
-	state  *snapshotState
-	Name   string
-	Used   int64
+	runner    Runner
+	output    io.Writer
+	state     *snapshotState
+	Name      string
+	Used      int64
+	usedKnown bool
 }
 
-// GetUsed returns the used size of the snapshot (refreshes if stale)
-func (s *Snapshot) GetUsed(ctx context.Context, debug bool) int64 {
+// GetUsed returns the used size of the snapshot, refreshing it when the value
+// is unknown or stale. It returns refresh and parsing failures separately from
+// a confirmed size of zero.
+func (s *Snapshot) GetUsed(ctx context.Context, debug bool) (int64, error) {
 	runner, output, state := s.runner, s.output, s.state
 	if runner == nil {
 		client := NewSystemClient(io.Discard)
 		runner, output, state = client.runner, client.output, client.snapshotState
 	}
 
-	if s.Used == 0 || state.stale.Load() {
+	if (!s.usedKnown && s.Used == 0) || state.stale.Load() {
 		if debug {
 			_, _ = fmt.Fprintln(output, "zfs get -Hp -o value used", s.Name)
 		}
@@ -52,21 +55,19 @@ func (s *Snapshot) GetUsed(ctx context.Context, debug bool) int64 {
 
 		err := runner.Run(ctx, &out, "zfs", "get", "-Hp", "-o", "value", "used", s.Name)
 		if err != nil {
-			return 0
+			return 0, fmt.Errorf("get used size for %s: %w", s.Name, err)
 		}
 
-		s.Used, err = strconv.ParseInt(strings.TrimSpace(out.String()), 10, 64)
+		used, err := strconv.ParseInt(strings.TrimSpace(out.String()), 10, 64)
 		if err != nil {
-			s.Used = 0
+			return 0, fmt.Errorf("parse used size for %s: %w", s.Name, err)
 		}
+
+		s.Used = used
+		s.usedKnown = true
 	}
 
-	return s.Used
-}
-
-// IsZero reports if the snapshot is effectively empty
-func (s *Snapshot) IsZero(ctx context.Context, debug bool) bool {
-	return s.GetUsed(ctx, debug) == 0
+	return s.Used, nil
 }
 
 // ListSnapshots returns snapshots using the client's command runner.
@@ -148,7 +149,7 @@ func parseSnapshots(
 		}
 
 		snapshots = append(snapshots, Snapshot{
-			Name: parts[0], Used: size, runner: runner, output: output, state: state,
+			Name: parts[0], Used: size, runner: runner, output: output, state: state, usedKnown: true,
 		})
 	}
 
@@ -500,8 +501,6 @@ func (client Client) getArgMax(ctx context.Context) int {
 
 // DestroySnapshot destroys a snapshot using the client's command runner.
 func (client Client) DestroySnapshot(ctx context.Context, name string, dryRun, debug bool) error {
-	client.snapshotState.stale.Store(true)
-
 	args := []string{"destroy", "-d", name}
 
 	if debug {
@@ -515,6 +514,8 @@ func (client Client) DestroySnapshot(ctx context.Context, name string, dryRun, d
 		if err != nil {
 			return fmt.Errorf("error destroying snapshot: %w", err)
 		}
+
+		client.snapshotState.stale.Store(true)
 	}
 
 	return nil

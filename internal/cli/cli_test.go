@@ -21,6 +21,7 @@ type fakeRunner struct {
 	mu            sync.Mutex
 	fail          bool
 	failDatasets  bool
+	failGet       bool
 	failSnapshot  bool
 	failSnapshots bool
 }
@@ -86,6 +87,10 @@ func (runner *fakeRunner) commandError(name string, args []string) error {
 	}
 
 	if runner.failSnapshots && isSnapshotList {
+		return errTestCommand
+	}
+
+	if runner.failGet && args[0] == "get" {
 		return errTestCommand
 	}
 
@@ -481,6 +486,34 @@ func TestRunCleanupSnapshotsReportsDatasetDiscoveryFailure(t *testing.T) {
 
 	if !strings.Contains(stderr.String(), "Error listing datasets") {
 		t.Errorf("runCleanupSnapshots() stderr = %q, want dataset discovery error", stderr.String())
+	}
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			t.Errorf("unexpected destroy command: %v", call.args)
+		}
+	}
+}
+
+func TestRunCleanupSnapshotsSkipsUnknownSizes(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{failGet: true}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(runner, stdout)
+
+	if err := client.DestroySnapshot(t.Context(), "tank/data@unrelated", false, false); err != nil {
+		t.Fatalf("DestroySnapshot() setup error = %v", err)
+	}
+
+	runner.mu.Lock()
+	runner.calls = nil
+	runner.mu.Unlock()
+
+	code := runCleanupSnapshots(t.Context(), cleanupName, nil, stdout, stderr, "dev", "none", client)
+	if code != 0 {
+		t.Fatalf("runCleanupSnapshots() code = %d, want 0; stderr = %q", code, stderr.String())
 	}
 
 	for _, call := range runner.calls {
