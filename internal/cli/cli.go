@@ -122,12 +122,25 @@ func runAutoSnapshot(
 		return 1
 	}
 
+	var retentionTargets map[string]struct{}
+
 	var createErr error
+	// KEEP is the final total, including the new snapshot. At zero, skip
+	// creation and clean matching snapshots from every included dataset.
 	if cfg.Keep > 0 {
-		createErr = tools.DoNewSnapshots(ctx, cfg, datasets)
+		retentionTargets, createErr = tools.DoNewSnapshots(ctx, cfg, datasets)
+	} else {
+		retentionTargets = datasetNameSet(datasets["included"])
 	}
 
-	cleanupErr := tools.ApplySnapshotRetention(ctx, cfg, pool, datasets)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		createErr = errors.Join(createErr, ctxErr)
+		_, _ = fmt.Fprintf(stderr, "Error creating snapshots: %v\n", createErr)
+
+		return 1
+	}
+
+	cleanupErr := tools.ApplySnapshotRetention(ctx, cfg, pool, datasets, retentionTargets)
 
 	if createErr != nil {
 		_, _ = fmt.Fprintf(stderr, "Error creating snapshots: %v\n", createErr)
@@ -142,6 +155,15 @@ func runAutoSnapshot(
 	}
 
 	return 0
+}
+
+func datasetNameSet(datasets []zfs.Dataset) map[string]struct{} {
+	names := make(map[string]struct{}, len(datasets))
+	for _, dataset := range datasets {
+		names[dataset.Name] = struct{}{}
+	}
+
+	return names
 }
 
 func parseKeep(value string) (int, error) {
@@ -294,7 +316,7 @@ func writeAutoSnapshotUsage(writer io.Writer, name string) {
 	_, _ = fmt.Fprintln(writer, "    -u              Use UTC for snapshots.")
 	_, _ = fmt.Fprintln(writer, "    -v              Show what is being done.")
 	_, _ = fmt.Fprintln(writer, "    INTERVAL        The interval to snapshot.")
-	_, _ = fmt.Fprintln(writer, "    KEEP            How many snapshots to keep.")
+	_, _ = fmt.Fprintln(writer, "    KEEP            Total snapshots to retain; 0 only cleans up.")
 }
 
 func writeCleanupUsage(writer io.Writer, name string) {

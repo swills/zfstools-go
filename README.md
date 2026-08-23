@@ -60,8 +60,13 @@ Usage: /usr/local/sbin/zfs-auto-snapshot [-dknpuv] <INTERVAL> <KEEP>
   -u              Use UTC for snapshots.
   -v              Show what is being done.
   INTERVAL        The interval to snapshot (e.g., hourly, daily).
-  KEEP            How many snapshots to retain for this interval.
+  KEEP            Total snapshots to retain; 0 only cleans up.
 ```
+
+`KEEP` is the total number of matching snapshots left after the command
+completes, including the newly created snapshot. With `KEEP=0`, no snapshot is
+created and all matching snapshots for the interval are removed from included
+datasets.
 
 ### `zfs-cleanup-snapshots`
 

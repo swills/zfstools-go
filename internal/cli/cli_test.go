@@ -16,16 +16,19 @@ import (
 )
 
 type fakeRunner struct {
-	datasetOutput  string
-	snapshotOutput string
-	calls          []cleanupCommand
-	mu             sync.Mutex
-	fail           bool
-	failDatasets   bool
-	failDestroy    bool
-	failGet        bool
-	failSnapshot   bool
-	failSnapshots  bool
+	cancel                context.CancelFunc
+	datasetOutput         string
+	snapshotOutput        string
+	failSnapshotDataset   string
+	cancelSnapshotDataset string
+	calls                 []cleanupCommand
+	mu                    sync.Mutex
+	fail                  bool
+	failDatasets          bool
+	failDestroy           bool
+	failGet               bool
+	failSnapshot          bool
+	failSnapshots         bool
 }
 
 type cleanupCommand struct {
@@ -35,10 +38,16 @@ type cleanupCommand struct {
 
 var errTestCommand = errors.New("test command failed")
 
-func (runner *fakeRunner) Run(_ context.Context, output io.Writer, name string, args ...string) error {
+func (runner *fakeRunner) Run(ctx context.Context, output io.Writer, name string, args ...string) error {
 	runner.mu.Lock()
 	runner.calls = append(runner.calls, cleanupCommand{name: name, args: append([]string(nil), args...)})
 	runner.mu.Unlock()
+
+	if runner.cancel != nil && snapshotCommandTargetsDataset(name, args, runner.cancelSnapshotDataset) {
+		runner.cancel()
+
+		return fmt.Errorf("cancel snapshot command: %w", ctx.Err())
+	}
 
 	if err := runner.commandError(name, args); err != nil {
 		return err
@@ -85,13 +94,8 @@ func (runner *fakeRunner) commandError(name string, args []string) error {
 		return nil
 	}
 
-	isSnapshotList := args[0] == "list" && slices.Contains(args, "snapshot")
-	if runner.failDatasets && args[0] == "list" && !isSnapshotList {
-		return errTestCommand
-	}
-
-	if runner.failSnapshots && isSnapshotList {
-		return errTestCommand
+	if err := runner.listError(args); err != nil {
+		return err
 	}
 
 	if runner.failGet && args[0] == "get" {
@@ -106,7 +110,42 @@ func (runner *fakeRunner) commandError(name string, args []string) error {
 		return errTestCommand
 	}
 
+	if snapshotCommandTargetsDataset(name, args, runner.failSnapshotDataset) {
+		return errTestCommand
+	}
+
 	return nil
+}
+
+func (runner *fakeRunner) listError(args []string) error {
+	if args[0] != "list" {
+		return nil
+	}
+
+	isSnapshotList := slices.Contains(args, "snapshot")
+	if runner.failDatasets && !isSnapshotList {
+		return errTestCommand
+	}
+
+	if runner.failSnapshots && isSnapshotList {
+		return errTestCommand
+	}
+
+	return nil
+}
+
+func snapshotCommandTargetsDataset(name string, args []string, dataset string) bool {
+	if dataset == "" || name != "zfs" || len(args) < 2 || args[0] != "snapshot" {
+		return false
+	}
+
+	for _, target := range args[1:] {
+		if strings.HasPrefix(target, dataset+"@") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestUsageWriters(t *testing.T) {
@@ -129,7 +168,7 @@ func TestUsageWriters(t *testing.T) {
     -u              Use UTC for snapshots.
     -v              Show what is being done.
     INTERVAL        The interval to snapshot.
-    KEEP            How many snapshots to keep.
+    KEEP            Total snapshots to retain; 0 only cleans up.
 `,
 		},
 		{
@@ -321,6 +360,97 @@ func TestRunAutoSnapshotReportsCreationFailure(t *testing.T) {
 
 	if !strings.Contains(stderr.String(), "Error creating snapshots") {
 		t.Errorf("runAutoSnapshot() stderr = %q, want creation error", stderr.String())
+	}
+
+	for _, call := range runner.calls {
+		if len(call.args) > 0 && call.args[0] == "list" && slices.Contains(call.args, "snapshot") {
+			t.Errorf("unexpected retention listing after complete creation failure: %v", call.args)
+		}
+	}
+}
+
+func TestRunAutoSnapshotCleansOnlySuccessfulDatasets(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{
+		datasetOutput: "tank/fs1\tfilesystem\t-\ttrue\tyes\n" +
+			"tank/fs2\tfilesystem\t-\ttrue\tyes\n",
+		snapshotOutput: "tank/fs1@zfs-auto-snap_daily-new\t10\n" +
+			"tank/fs1@zfs-auto-snap_daily-old\t10\n" +
+			"tank/fs2@zfs-auto-snap_daily-new\t10\n" +
+			"tank/fs2@zfs-auto-snap_daily-old\t10\n",
+		failSnapshotDataset: "tank/fs1",
+	}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(runner, stdout)
+
+	code := runAutoSnapshot(
+		t.Context(), autoSnapshotName, []string{"daily", "1"}, stdout, stderr, "dev", "none", client,
+	)
+	if code != 1 {
+		t.Fatalf("runAutoSnapshot() code = %d, want 1", code)
+	}
+
+	var destroyed []string
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyed = append(destroyed, call.args[len(call.args)-1])
+		}
+	}
+
+	if !slices.Equal(destroyed, []string{"tank/fs2@zfs-auto-snap_daily-old"}) {
+		t.Errorf("destroyed snapshots = %v, want only successful dataset's old snapshot", destroyed)
+	}
+}
+
+func TestRunAutoSnapshotCancellationSkipsCleanup(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	runner := &fakeRunner{
+		cancel:                cancel,
+		cancelSnapshotDataset: "tank/fs2",
+		datasetOutput: "tank/fs1\tfilesystem\t-\ttrue\tyes\n" +
+			"tank/fs2\tfilesystem\t-\ttrue\tyes\n",
+	}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(runner, stdout)
+
+	code := runAutoSnapshot(ctx, autoSnapshotName, []string{"daily", "1"}, stdout, stderr, "dev", "none", client)
+	if code != 1 {
+		t.Fatalf("runAutoSnapshot() code = %d, want 1", code)
+	}
+
+	for _, call := range runner.calls {
+		if len(call.args) > 0 && call.args[0] == "list" && slices.Contains(call.args, "snapshot") {
+			t.Errorf("unexpected retention listing after cancellation: %v", call.args)
+		}
+	}
+}
+
+func TestRunAutoSnapshotKeepZeroCancellationSkipsCleanup(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	runner := &fakeRunner{datasetOutput: "tank/fs1\tfilesystem\t-\ttrue\tyes\n"}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	client := zfs.NewClient(runner, stdout)
+
+	code := runAutoSnapshot(ctx, autoSnapshotName, []string{"daily", "0"}, stdout, stderr, "dev", "none", client)
+	if code != 1 {
+		t.Fatalf("runAutoSnapshot() code = %d, want 1", code)
+	}
+
+	for _, call := range runner.calls {
+		if len(call.args) > 0 && call.args[0] == "list" && slices.Contains(call.args, "snapshot") {
+			t.Errorf("unexpected retention listing after cancellation: %v", call.args)
+		}
 	}
 }
 

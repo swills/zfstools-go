@@ -68,9 +68,16 @@ func TestDoNewSnapshots(t *testing.T) {
 	datasets := map[string][]zfs.Dataset{
 		"single":    {{Name: "pool/fs1"}},
 		"recursive": {{Name: "pool/fs2"}},
+		"included":  {{Name: "pool/fs1"}, {Name: "pool/fs2"}},
 	}
-	if err := tools.DoNewSnapshots(t.Context(), cfg, datasets); err != nil {
+
+	created, err := tools.DoNewSnapshots(t.Context(), cfg, datasets)
+	if err != nil {
 		t.Fatalf("DoNewSnapshots() error = %v", err)
+	}
+
+	if len(created) != 2 {
+		t.Errorf("created datasets = %v, want both datasets", created)
 	}
 
 	want := []commandCall{
@@ -104,15 +111,26 @@ func TestDoNewSnapshotsContinuesAfterError(t *testing.T) {
 	datasets := map[string][]zfs.Dataset{
 		"single":    {{Name: "pool/fs1"}},
 		"recursive": {{Name: "pool/fs2"}},
+		"included":  {{Name: "pool/fs1"}, {Name: "pool/fs2"}, {Name: "pool/fs2/child"}},
 	}
 
-	err := tools.DoNewSnapshots(t.Context(), cfg, datasets)
+	created, err := tools.DoNewSnapshots(t.Context(), cfg, datasets)
 	if !errors.Is(err, zfs.ErrOneSnapshotOfManyErrored) {
 		t.Fatalf("DoNewSnapshots() error = %v, want snapshot error", err)
 	}
 
 	if !errors.Is(err, errTestCommand) {
 		t.Errorf("DoNewSnapshots() error = %v, want underlying command error", err)
+	}
+
+	if _, ok := created["pool/fs1"]; ok {
+		t.Error("failed dataset was reported as created")
+	}
+
+	for _, name := range []string{"pool/fs2", "pool/fs2/child"} {
+		if _, ok := created[name]; !ok {
+			t.Errorf("created datasets = %v, want %s", created, name)
+		}
 	}
 
 	if got := len(runner.calls); got != 3 {

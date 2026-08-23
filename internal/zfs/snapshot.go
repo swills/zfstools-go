@@ -341,30 +341,37 @@ func (client Client) CreateManySnapshots(
 	datasets []Dataset,
 	recursive bool,
 	dryRun, verbose, debug, useThreads bool,
-) error {
+) ([]string, error) {
 	if err := validateCreateManyRequest(snapshotName, datasets); err != nil {
-		return err
+		return nil, err
 	}
 
 	options := createOptions{
 		recursive: recursive, dryRun: dryRun, verbose: verbose, debug: debug, useThreads: useThreads,
 	}
 	dbDatasets, regularDatasets := partitionDatasets(datasets)
-	result := client.createIndividualSnapshots(ctx, snapshotName, dbDatasets, options)
+	created, result := client.createIndividualSnapshots(ctx, snapshotName, dbDatasets, options)
 
 	if len(regularDatasets) > 0 {
+		var regularCreated []string
+
+		var regularErr error
+
 		if client.hasBookmarks(ctx, debug) {
-			result = errors.Join(result, client.createPooledSnapshots(ctx, snapshotName, regularDatasets, options))
+			regularCreated, regularErr = client.createPooledSnapshots(ctx, snapshotName, regularDatasets, options)
 		} else {
-			result = errors.Join(result, client.createIndividualSnapshots(ctx, snapshotName, regularDatasets, options))
+			regularCreated, regularErr = client.createIndividualSnapshots(ctx, snapshotName, regularDatasets, options)
 		}
+
+		created = append(created, regularCreated...)
+		result = errors.Join(result, regularErr)
 	}
 
 	if result != nil {
-		return errors.Join(ErrOneSnapshotOfManyErrored, result)
+		return created, errors.Join(ErrOneSnapshotOfManyErrored, result)
 	}
 
-	return nil
+	return created, nil
 }
 
 func validateCreateManyRequest(snapshotName string, datasets []Dataset) error {
@@ -408,8 +415,10 @@ func (client Client) createIndividualSnapshots(
 	snapshotName string,
 	datasets []Dataset,
 	options createOptions,
-) error {
+) ([]string, error) {
 	if !options.useThreads {
+		var created []string
+
 		var result error
 
 		for _, dataset := range datasets {
@@ -418,30 +427,47 @@ func (client Client) createIndividualSnapshots(
 				[]string{dataset.Name}, snapshotName, options.recursive, dataset.DB,
 				options.dryRun, options.verbose, options.debug,
 			)
+
 			result = errors.Join(result, err)
+			if err == nil {
+				created = append(created, dataset.Name)
+			}
 		}
 
-		return result
+		return created, result
 	}
 
-	results := make(chan error, len(datasets))
+	type creationResult struct {
+		err  error
+		name string
+	}
+
+	results := make(chan creationResult, len(datasets))
 	for _, dataset := range datasets {
 		go func() {
-			results <- client.CreateSnapshots(
+			err := client.CreateSnapshots(
 				ctx,
 				[]string{dataset.Name}, snapshotName, options.recursive, dataset.DB,
 				options.dryRun, options.verbose, options.debug,
 			)
+			results <- creationResult{name: dataset.Name, err: err}
 		}()
 	}
+
+	var created []string
 
 	var result error
 
 	for range datasets {
-		result = errors.Join(result, <-results)
+		creation := <-results
+
+		result = errors.Join(result, creation.err)
+		if creation.err == nil {
+			created = append(created, creation.name)
+		}
 	}
 
-	return result
+	return created, result
 }
 
 func (client Client) createPooledSnapshots(
@@ -449,7 +475,7 @@ func (client Client) createPooledSnapshots(
 	snapshotName string,
 	datasets []Dataset,
 	options createOptions,
-) error {
+) ([]string, error) {
 	pools := make(map[string][]string)
 	maxTargetLength := 0
 
@@ -466,6 +492,8 @@ func (client Client) createPooledSnapshots(
 	available := max(client.getArgMax(ctx)-argMaxSafetyMargin, 1)
 	chunkSize := max(available/maxTargetLength, 1)
 
+	var created []string
+
 	var result error
 
 	for _, datasetNames := range pools {
@@ -476,11 +504,15 @@ func (client Client) createPooledSnapshots(
 				datasetNames[index:end], snapshotName, options.recursive, "",
 				options.dryRun, options.verbose, options.debug,
 			)
+
 			result = errors.Join(result, err)
+			if err == nil {
+				created = append(created, datasetNames[index:end]...)
+			}
 		}
 	}
 
-	return result
+	return created, result
 }
 
 func (client Client) getArgMax(ctx context.Context) int {

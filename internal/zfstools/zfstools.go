@@ -24,7 +24,7 @@ type zfsClient interface {
 		datasets []zfs.Dataset,
 		recursive bool,
 		dryRun, verbose, debug, useThreads bool,
-	) error
+	) ([]string, error)
 	DestroySnapshot(ctx context.Context, name string, dryRun, debug bool) error
 }
 
@@ -226,26 +226,41 @@ func (tools Tools) DoNewSnapshots(
 	ctx context.Context,
 	cfg config.Config,
 	datasets map[string][]zfs.Dataset,
-) error {
+) (map[string]struct{}, error) {
 	name := snapshotName(cfg)
+	created := make(map[string]struct{})
 
 	var singleErr, recursiveErr error
 
 	if len(datasets["single"]) > 0 {
-		singleErr = tools.client.CreateManySnapshots(
+		var singleCreated []string
+
+		singleCreated, singleErr = tools.client.CreateManySnapshots(
 			ctx,
 			name, datasets["single"], false, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads,
 		)
+		for _, datasetName := range singleCreated {
+			created[datasetName] = struct{}{}
+		}
 	}
 
 	if len(datasets["recursive"]) > 0 {
-		recursiveErr = tools.client.CreateManySnapshots(
+		var recursiveCreated []string
+
+		recursiveCreated, recursiveErr = tools.client.CreateManySnapshots(
 			ctx,
 			name, datasets["recursive"], true, cfg.DryRun, cfg.Verbose, cfg.Debug, cfg.UseThreads,
 		)
+		for _, root := range recursiveCreated {
+			for _, dataset := range datasets["included"] {
+				if dataset.Name == root || strings.HasPrefix(dataset.Name, root+"/") {
+					created[dataset.Name] = struct{}{}
+				}
+			}
+		}
 	}
 
-	return errors.Join(singleErr, recursiveErr)
+	return created, errors.Join(singleErr, recursiveErr)
 }
 
 func GroupSnapshotsIntoDatasets(snaps []zfs.Snapshot, datasets []zfs.Dataset) map[string][]zfs.Snapshot {

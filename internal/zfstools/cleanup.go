@@ -66,8 +66,16 @@ func (tools Tools) applyZeroSizePlan(ctx context.Context, plan zeroSizePlan, cfg
 }
 
 func (tools Tools) destroySnapshots(ctx context.Context, snapshots []zfs.Snapshot, cfg config.Config) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("destroy snapshots: %w", err)
+	}
+
 	if !cfg.UseThreads {
 		for _, snapshot := range snapshots {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("destroy snapshots: %w", err)
+			}
+
 			if err := tools.client.DestroySnapshot(ctx, snapshot.Name, cfg.DryRun, cfg.Debug); err != nil {
 				return fmt.Errorf("destroy snapshot %s: %w", snapshot.Name, err)
 			}
@@ -135,7 +143,16 @@ func (tools Tools) ApplySnapshotRetention(
 	cfg config.Config,
 	pool string,
 	datasets map[string][]zfs.Dataset,
+	retentionTargets map[string]struct{},
 ) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("apply snapshot retention: %w", err)
+	}
+
+	if len(retentionTargets) == 0 {
+		return nil
+	}
+
 	snapshots, err := tools.client.ListSnapshots(ctx, pool, true, cfg.Debug)
 	if err != nil {
 		return fmt.Errorf("list snapshots for retention: %w", err)
@@ -153,13 +170,8 @@ func (tools Tools) ApplySnapshotRetention(
 
 	grouped := GroupSnapshotsIntoDatasets(filtered, append(datasets["included"], datasets["excluded"]...))
 
-	included := make(map[string]struct{}, len(datasets["included"]))
-	for _, dataset := range datasets["included"] {
-		included[dataset.Name] = struct{}{}
-	}
-
 	for name := range grouped {
-		if _, ok := included[name]; !ok {
+		if _, ok := retentionTargets[name]; !ok {
 			delete(grouped, name)
 		}
 	}

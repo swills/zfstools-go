@@ -410,7 +410,7 @@ func TestCreateManySnapshots(t *testing.T) {
 		}}
 		client := NewClient(runner, io.Discard)
 
-		err := client.CreateManySnapshots(t.Context(), "auto",
+		created, err := client.CreateManySnapshots(t.Context(), "auto",
 			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
 		if err != nil {
 			t.Fatalf("createManySnapshots() error = %v", err)
@@ -427,6 +427,10 @@ func TestCreateManySnapshots(t *testing.T) {
 		if diff := deep.Equal(runner.calls, want); diff != nil {
 			t.Errorf("commands differ: %v", diff)
 		}
+
+		if !slices.Equal(created, []string{"pool/fs1", "pool/fs2"}) {
+			t.Errorf("created datasets = %v, want both datasets", created)
+		}
 	})
 
 	t.Run("single snapshots", func(t *testing.T) {
@@ -435,7 +439,7 @@ func TestCreateManySnapshots(t *testing.T) {
 		runner := &fakeRunner{}
 		client := NewClient(runner, io.Discard)
 
-		err := client.CreateManySnapshots(t.Context(), "auto",
+		created, err := client.CreateManySnapshots(t.Context(), "auto",
 			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
 		if err != nil {
 			t.Fatalf("createManySnapshots() error = %v", err)
@@ -451,6 +455,10 @@ func TestCreateManySnapshots(t *testing.T) {
 		if diff := deep.Equal(runner.calls, want); diff != nil {
 			t.Errorf("commands differ: %v", diff)
 		}
+
+		if !slices.Equal(created, []string{"pool/fs1", "pool/fs2"}) {
+			t.Errorf("created datasets = %v, want both datasets", created)
+		}
 	})
 
 	t.Run("one command fails", func(t *testing.T) {
@@ -465,12 +473,44 @@ func TestCreateManySnapshots(t *testing.T) {
 		}}
 		client := NewClient(runner, io.Discard)
 
-		err := client.CreateManySnapshots(t.Context(), "auto",
+		created, err := client.CreateManySnapshots(t.Context(), "auto",
 			[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
 		if !errors.Is(err, ErrOneSnapshotOfManyErrored) {
 			t.Fatalf("createManySnapshots() error = %v, want %v", err, ErrOneSnapshotOfManyErrored)
 		}
+
+		if !slices.Equal(created, []string{"pool/fs1"}) {
+			t.Errorf("created datasets = %v, want pool/fs1", created)
+		}
 	})
+}
+
+func TestCreateManySnapshotsPooledFailureConfirmsNoDatasets(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{runFunc: func(name string, _ ...string) ([]byte, error) {
+		switch name {
+		case "zpool":
+			return []byte("pool\tfeature@bookmarks\tenabled\n"), nil
+		case "getconf":
+			return []byte("123456\n"), nil
+		case "zfs":
+			return nil, errTestCommand
+		default:
+			return nil, nil
+		}
+	}}
+	client := NewClient(runner, io.Discard)
+
+	created, err := client.CreateManySnapshots(t.Context(), "auto",
+		[]Dataset{{Name: "pool/fs1"}, {Name: "pool/fs2"}}, false, false, false, false, false)
+	if !errors.Is(err, ErrOneSnapshotOfManyErrored) {
+		t.Fatalf("CreateManySnapshots() error = %v, want pooled command error", err)
+	}
+
+	if len(created) != 0 {
+		t.Errorf("created datasets = %v, want none", created)
+	}
 }
 
 func TestCreateManySnapshotsDatabaseDataset(t *testing.T) {
@@ -479,7 +519,7 @@ func TestCreateManySnapshotsDatabaseDataset(t *testing.T) {
 	runner := &fakeRunner{}
 	client := NewClient(runner, io.Discard)
 
-	err := client.CreateManySnapshots(
+	created, err := client.CreateManySnapshots(
 		t.Context(),
 		"auto", []Dataset{{Name: "pool/mysql", DB: "mysql"}}, false, false, false, false, false,
 	)
@@ -493,6 +533,10 @@ func TestCreateManySnapshotsDatabaseDataset(t *testing.T) {
 	}}}
 	if diff := deep.Equal(runner.calls, want); diff != nil {
 		t.Errorf("commands differ: %v", diff)
+	}
+
+	if !slices.Equal(created, []string{"pool/mysql"}) {
+		t.Errorf("created datasets = %v, want pool/mysql", created)
 	}
 }
 
@@ -508,12 +552,16 @@ func TestCreateManySnapshotsMixedDatasetsContinueAfterError(t *testing.T) {
 	}}
 	client := NewClient(runner, io.Discard)
 
-	err := client.CreateManySnapshots(t.Context(), "auto", []Dataset{
+	created, err := client.CreateManySnapshots(t.Context(), "auto", []Dataset{
 		{Name: "pool/mysql", DB: "mysql"},
 		{Name: "pool/files"},
 	}, false, false, false, false, false)
 	if !errors.Is(err, ErrOneSnapshotOfManyErrored) {
 		t.Fatalf("CreateManySnapshots() error = %v, want %v", err, ErrOneSnapshotOfManyErrored)
+	}
+
+	if !slices.Equal(created, []string{"pool/files"}) {
+		t.Errorf("created datasets = %v, want pool/files", created)
 	}
 
 	if len(runner.calls) != 3 {
@@ -550,11 +598,20 @@ func TestCreateManySnapshotsParallelFallback(t *testing.T) {
 			}}
 			client := NewClient(runner, io.Discard)
 
-			err := client.CreateManySnapshots(t.Context(), "auto", []Dataset{
+			created, err := client.CreateManySnapshots(t.Context(), "auto", []Dataset{
 				{Name: "pool/fs1"}, {Name: "pool/fs2"}, {Name: "pool/fs3"},
 			}, false, false, false, false, true)
 			if (err != nil) != testCase.wantErr {
 				t.Fatalf("CreateManySnapshots() error = %v, wantErr %v", err, testCase.wantErr)
+			}
+
+			wantCreated := 3
+			if testCase.wantErr {
+				wantCreated = 2
+			}
+
+			if len(created) != wantCreated {
+				t.Errorf("created dataset count = %d, want %d", len(created), wantCreated)
 			}
 
 			targets := make([]string, 0, len(runner.calls))
@@ -596,7 +653,7 @@ func TestCreateManySnapshotsMinimumChunkSize(t *testing.T) {
 	}}
 	client := NewClient(runner, io.Discard)
 
-	err := client.CreateManySnapshots(t.Context(), "auto", []Dataset{
+	created, err := client.CreateManySnapshots(t.Context(), "auto", []Dataset{
 		{Name: "pool/fs1"}, {Name: "pool/fs2"},
 	}, false, false, false, false, false)
 	if err != nil {
@@ -613,6 +670,10 @@ func TestCreateManySnapshotsMinimumChunkSize(t *testing.T) {
 	}
 	if diff := deep.Equal(runner.calls, want); diff != nil {
 		t.Errorf("commands differ: %v", diff)
+	}
+
+	if !slices.Equal(created, []string{"pool/fs1", "pool/fs2"}) {
+		t.Errorf("created datasets = %v, want both datasets", created)
 	}
 }
 
@@ -644,7 +705,7 @@ func TestCreateManySnapshotsValidation(t *testing.T) {
 
 			client := NewClient(&fakeRunner{}, io.Discard)
 
-			err := client.CreateManySnapshots(t.Context(), testCase.snapshot,
+			_, err := client.CreateManySnapshots(t.Context(), testCase.snapshot,
 				testCase.datasets, false, false, false, false, false)
 			if !errors.Is(err, testCase.want) {
 				t.Errorf("createManySnapshots() error = %v, want %v", err, testCase.want)

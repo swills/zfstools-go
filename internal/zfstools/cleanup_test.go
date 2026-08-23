@@ -2,6 +2,7 @@ package zfstools
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,92 @@ import (
 	"zfstools-go/internal/config"
 	"zfstools-go/internal/zfs"
 )
+
+func retentionTargets(names ...string) map[string]struct{} {
+	targets := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		targets[name] = struct{}{}
+	}
+
+	return targets
+}
+
+func TestApplySnapshotRetentionCancellationSkipsCleanup(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	runner := &fakeRunner{}
+	client := zfs.NewClient(runner, io.Discard)
+
+	err := New(client, io.Discard).ApplySnapshotRetention(
+		ctx,
+		config.Config{Keep: 1},
+		"tank",
+		map[string][]zfs.Dataset{"included": {{Name: "tank/a"}}},
+		retentionTargets("tank/a"),
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ApplySnapshotRetention() error = %v, want context cancellation", err)
+	}
+
+	if len(runner.calls) != 0 {
+		t.Errorf("Run calls = %v, want none", runner.calls)
+	}
+}
+
+func TestDestroySnapshotsCancellation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("before cleanup", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		runner := &fakeRunner{}
+		client := zfs.NewClient(runner, io.Discard)
+
+		err := New(client, io.Discard).destroySnapshots(
+			ctx, []zfs.Snapshot{{Name: "tank/a@1"}}, config.Config{},
+		)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("destroySnapshots() error = %v, want context cancellation", err)
+		}
+
+		if len(runner.calls) != 0 {
+			t.Errorf("Run calls = %v, want none", runner.calls)
+		}
+	})
+
+	t.Run("during serial cleanup", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
+			if args[0] == "destroy" {
+				cancel()
+			}
+
+			return nil, nil
+		}}
+		client := zfs.NewClient(runner, io.Discard)
+
+		err := New(client, io.Discard).destroySnapshots(
+			ctx,
+			[]zfs.Snapshot{{Name: "tank/a@2"}, {Name: "tank/a@1"}},
+			config.Config{},
+		)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("destroySnapshots() error = %v, want context cancellation", err)
+		}
+
+		if len(runner.calls) != 1 || runner.calls[0].args[len(runner.calls[0].args)-1] != "tank/a@2" {
+			t.Errorf("Run calls = %v, want only first destruction", runner.calls)
+		}
+	})
+}
 
 func TestDestroyZeroSizedSnapshots(t *testing.T) {
 	t.Parallel()
@@ -455,7 +542,9 @@ func TestApplySnapshotRetention(t *testing.T) {
 	}
 	cfg := config.Config{Interval: "daily", Keep: 1, ShouldDestroyZeroSized: true}
 
-	if err := tools.ApplySnapshotRetention(t.Context(), cfg, "tank", datasets); err != nil {
+	if err := tools.ApplySnapshotRetention(
+		t.Context(), cfg, "tank", datasets, retentionTargets("tank/included", "tank/within-keep"),
+	); err != nil {
 		t.Fatalf("ApplySnapshotRetention() error = %v", err)
 	}
 
@@ -479,6 +568,23 @@ func TestApplySnapshotRetention(t *testing.T) {
 	}
 }
 
+func TestApplySnapshotRetentionWithoutTargetsDoesNothing(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{runFunc: func(string, ...string) ([]byte, error) {
+		return nil, errTestCommand
+	}}
+	tools := New(zfs.NewClient(runner, io.Discard), io.Discard)
+
+	if err := tools.ApplySnapshotRetention(t.Context(), config.Config{}, "tank", nil, nil); err != nil {
+		t.Fatalf("ApplySnapshotRetention() error = %v", err)
+	}
+
+	if len(runner.calls) != 0 {
+		t.Errorf("command count = %d, want none", len(runner.calls))
+	}
+}
+
 func TestApplySnapshotRetentionListError(t *testing.T) {
 	t.Parallel()
 
@@ -487,7 +593,9 @@ func TestApplySnapshotRetentionListError(t *testing.T) {
 	}}
 	tools := New(zfs.NewClient(runner, io.Discard), io.Discard)
 
-	err := tools.ApplySnapshotRetention(t.Context(), config.Config{}, "tank", nil)
+	err := tools.ApplySnapshotRetention(
+		t.Context(), config.Config{}, "tank", nil, retentionTargets("tank/data"),
+	)
 	if !errors.Is(err, errTestCommand) {
 		t.Fatalf("ApplySnapshotRetention() error = %v, want command error", err)
 	}
@@ -518,7 +626,7 @@ func TestApplySnapshotRetentionDestroyErrorStopsSerialCleanup(t *testing.T) {
 	datasets := map[string][]zfs.Dataset{"included": {{Name: "tank/data"}}}
 
 	err := tools.ApplySnapshotRetention(
-		t.Context(), config.Config{Interval: "daily"}, "tank", datasets,
+		t.Context(), config.Config{Interval: "daily"}, "tank", datasets, retentionTargets("tank/data"),
 	)
 	if !errors.Is(err, errTestCommand) {
 		t.Fatalf("ApplySnapshotRetention() error = %v, want destroy error", err)
@@ -566,7 +674,8 @@ func TestApplySnapshotRetentionReportsZeroSizePlanError(t *testing.T) {
 	datasets := map[string][]zfs.Dataset{"included": {{Name: "tank/data"}}}
 
 	err := New(client, io.Discard).ApplySnapshotRetention(
-		t.Context(), config.Config{Interval: "daily", Keep: 1, ShouldDestroyZeroSized: true}, "tank", datasets,
+		t.Context(), config.Config{Interval: "daily", Keep: 1, ShouldDestroyZeroSized: true},
+		"tank", datasets, retentionTargets("tank/data"),
 	)
 	if !errors.Is(err, errTestCommand) {
 		t.Fatalf("ApplySnapshotRetention() error = %v, want size error", err)
@@ -600,7 +709,8 @@ func TestApplySnapshotRetentionReportsZeroSizeDestroyError(t *testing.T) {
 	tools := New(zfs.NewClient(runner, io.Discard), io.Discard)
 
 	err := tools.ApplySnapshotRetention(
-		t.Context(), config.Config{Interval: "daily", Keep: 1, ShouldDestroyZeroSized: true}, "tank", datasets,
+		t.Context(), config.Config{Interval: "daily", Keep: 1, ShouldDestroyZeroSized: true},
+		"tank", datasets, retentionTargets("tank/data"),
 	)
 	if !errors.Is(err, errTestCommand) {
 		t.Fatalf("ApplySnapshotRetention() error = %v, want destroy error", err)
