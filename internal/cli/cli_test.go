@@ -375,10 +375,10 @@ func TestRunAutoSnapshotCleansOnlySuccessfulDatasets(t *testing.T) {
 	runner := &fakeRunner{
 		datasetOutput: "tank/fs1\tfilesystem\t-\ttrue\tyes\n" +
 			"tank/fs2\tfilesystem\t-\ttrue\tyes\n",
-		snapshotOutput: "tank/fs1@zfs-auto-snap_daily-new\t10\n" +
-			"tank/fs1@zfs-auto-snap_daily-old\t10\n" +
-			"tank/fs2@zfs-auto-snap_daily-new\t10\n" +
-			"tank/fs2@zfs-auto-snap_daily-old\t10\n",
+		snapshotOutput: "tank/fs1@zfs-auto-snap_daily-2025-01-02-03h04\t10\n" +
+			"tank/fs1@zfs-auto-snap_daily-2025-01-01-03h04\t10\n" +
+			"tank/fs2@zfs-auto-snap_daily-2025-01-02-03h04\t10\n" +
+			"tank/fs2@zfs-auto-snap_daily-2025-01-01-03h04\t10\n",
 		failSnapshotDataset: "tank/fs1",
 	}
 	stdout := &bytes.Buffer{}
@@ -400,7 +400,7 @@ func TestRunAutoSnapshotCleansOnlySuccessfulDatasets(t *testing.T) {
 		}
 	}
 
-	if !slices.Equal(destroyed, []string{"tank/fs2@zfs-auto-snap_daily-old"}) {
+	if !slices.Equal(destroyed, []string{"tank/fs2@zfs-auto-snap_daily-2025-01-01-03h04"}) {
 		t.Errorf("destroyed snapshots = %v, want only successful dataset's old snapshot", destroyed)
 	}
 }
@@ -688,8 +688,8 @@ func TestRunAutoSnapshotReportsCleanupDestroyFailure(t *testing.T) {
 
 	runner := &fakeRunner{
 		failDestroy: true,
-		snapshotOutput: "tank/data@zfs-auto-snap_daily-new\t10\n" +
-			"tank/data@zfs-auto-snap_daily-old\t10\n",
+		snapshotOutput: "tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t10\n" +
+			"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t10\n",
 	}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}

@@ -25,6 +25,77 @@ func retentionTargets(names ...string) map[string]struct{} {
 	return targets
 }
 
+func TestMatchesGeneratedSnapshot(t *testing.T) {
+	t.Parallel()
+
+	defaultConfig := config.Config{Interval: "daily"}
+	tests := []struct {
+		name     string
+		snapshot string
+		cfg      config.Config
+		want     bool
+	}{
+		{
+			name:     "local timestamp",
+			snapshot: "tank/data@zfs-auto-snap_daily-2025-01-02-03h04",
+			cfg:      defaultConfig,
+			want:     true,
+		},
+		{
+			name:     "UTC timestamp",
+			snapshot: "tank/data@zfs-auto-snap_daily-2025-01-02-03h04U",
+			cfg:      defaultConfig,
+			want:     true,
+		},
+		{
+			name:     "custom prefix",
+			snapshot: "tank/data@backup_daily-2025-01-02-03h04",
+			cfg:      config.Config{Interval: "daily", SnapshotPrefix: "backup"},
+			want:     true,
+		},
+		{
+			name:     "prefix in dataset",
+			snapshot: "tank/zfs-auto-snap_daily-2025-01-02-03h04@manual",
+			cfg:      defaultConfig,
+		},
+		{
+			name:     "missing snapshot separator",
+			snapshot: "tank/data/zfs-auto-snap_daily-2025-01-02-03h04",
+			cfg:      defaultConfig,
+		},
+		{
+			name:     "prefix in middle",
+			snapshot: "tank/data@manual-zfs-auto-snap_daily-2025-01-02-03h04",
+			cfg:      defaultConfig,
+		},
+		{
+			name:     "wrong interval",
+			snapshot: "tank/data@zfs-auto-snap_hourly-2025-01-02-03h04",
+			cfg:      defaultConfig,
+		},
+		{
+			name:     "invalid timestamp",
+			snapshot: "tank/data@zfs-auto-snap_daily-2025-13-02-03h04",
+			cfg:      defaultConfig,
+		},
+		{
+			name:     "additional suffix",
+			snapshot: "tank/data@zfs-auto-snap_daily-2025-01-02-03h04U-extra",
+			cfg:      defaultConfig,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := matchesGeneratedSnapshot(testCase.snapshot, testCase.cfg); got != testCase.want {
+				t.Errorf("matchesGeneratedSnapshot(%q) = %t, want %t", testCase.snapshot, got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestApplySnapshotRetentionCancellationSkipsCleanup(t *testing.T) {
 	t.Parallel()
 
@@ -528,10 +599,10 @@ func TestApplySnapshotRetention(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeRunner{output: []byte(
-		"tank/included@zfs-auto-snap_daily-new\t10\n" +
-			"tank/included@zfs-auto-snap_daily-old\t10\n" +
-			"tank/within-keep@zfs-auto-snap_daily-only\t10\n" +
-			"tank/excluded@zfs-auto-snap_daily-old\t10\n" +
+		"tank/included@zfs-auto-snap_daily-2025-01-02-03h04\t10\n" +
+			"tank/included@zfs-auto-snap_daily-2025-01-01-03h04\t10\n" +
+			"tank/within-keep@zfs-auto-snap_daily-2025-01-02-03h04U\t10\n" +
+			"tank/excluded@zfs-auto-snap_daily-2025-01-01-03h04\t10\n" +
 			"tank/included@manual\t10\n",
 	)}
 	client := zfs.NewClient(runner, io.Discard)
@@ -556,7 +627,9 @@ func TestApplySnapshotRetention(t *testing.T) {
 		}
 	}
 
-	if diff := deep.Equal(destroyed, []string{"tank/included@zfs-auto-snap_daily-old"}); diff != nil {
+	if diff := deep.Equal(destroyed, []string{
+		"tank/included@zfs-auto-snap_daily-2025-01-01-03h04",
+	}); diff != nil {
 		t.Errorf("destroyed snapshots differ: %v", diff)
 	}
 
@@ -611,8 +684,8 @@ func TestApplySnapshotRetentionDestroyErrorStopsSerialCleanup(t *testing.T) {
 	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
 		if args[0] == "list" {
 			return []byte(
-				"tank/data@zfs-auto-snap_daily-new\t10\n" +
-					"tank/data@zfs-auto-snap_daily-old\t10\n",
+				"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t10\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t10\n",
 			), nil
 		}
 
@@ -652,8 +725,8 @@ func TestApplySnapshotRetentionReportsZeroSizePlanError(t *testing.T) {
 		switch args[0] {
 		case "list":
 			return []byte(
-				"tank/data@zfs-auto-snap_daily-new\t1\n" +
-					"tank/data@zfs-auto-snap_daily-old\t0\n",
+				"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t1\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t0\n",
 			), nil
 		case "get":
 			return nil, errTestCommand
@@ -694,8 +767,8 @@ func TestApplySnapshotRetentionReportsZeroSizeDestroyError(t *testing.T) {
 	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
 		if args[0] == "list" {
 			return []byte(
-				"tank/data@zfs-auto-snap_daily-new\t1\n" +
-					"tank/data@zfs-auto-snap_daily-old\t0\n",
+				"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t1\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-01-03h04\t0\n",
 			), nil
 		}
 
@@ -747,6 +820,49 @@ func TestPruneZeroSizedSnapshots(t *testing.T) {
 
 	if !slices.Equal(destroyed, []string{"tank/data@manual-old"}) {
 		t.Errorf("destroyed snapshots = %v, want manual-old", destroyed)
+	}
+}
+
+func TestPruneZeroSizedSnapshotsInspectsSnapshotComponent(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{runFunc: func(_ string, args ...string) ([]byte, error) {
+		if args[0] != "list" {
+			return nil, nil
+		}
+
+		if slices.Contains(args, "snapshot") {
+			return []byte(
+				"tank/zfs-auto-snap_dataset@manual-new\t0\n" +
+					"tank/zfs-auto-snap_dataset@manual-old\t0\n" +
+					"tank/data@manual-new\t0\n" +
+					"tank/data@manual-zfs-auto-snap_daily-2025-01-01-03h04\t0\n" +
+					"tank/data@zfs-auto-snap_daily-2025-01-02-03h04\t0\n",
+			), nil
+		}
+
+		return []byte("tank/data\tfilesystem\ntank/zfs-auto-snap_dataset\tfilesystem\n"), nil
+	}}
+	tools := New(zfs.NewClient(runner, io.Discard), io.Discard)
+
+	if err := tools.PruneZeroSizedSnapshots(t.Context(), config.Config{}, "tank"); err != nil {
+		t.Fatalf("PruneZeroSizedSnapshots() error = %v", err)
+	}
+
+	var destroyed []string
+
+	for _, call := range runner.calls {
+		if call.name == "zfs" && len(call.args) > 0 && call.args[0] == "destroy" {
+			destroyed = append(destroyed, call.args[len(call.args)-1])
+		}
+	}
+
+	want := []string{
+		"tank/zfs-auto-snap_dataset@manual-old",
+		"tank/data@manual-zfs-auto-snap_daily-2025-01-01-03h04",
+	}
+	if !slices.Equal(destroyed, want) {
+		t.Errorf("destroyed snapshots = %v, want %v", destroyed, want)
 	}
 }
 

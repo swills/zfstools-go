@@ -66,10 +66,7 @@ func runAutoSnapshot(
 
 	var keepZeroSized bool
 
-	cfg := config.Config{
-		Timestamp:              time.Now(),
-		ShouldDestroyZeroSized: true,
-	}
+	cfg := config.Config{Timestamp: time.Now(), ShouldDestroyZeroSized: true}
 	flags := newFlagSet(name, stderr)
 	flags.BoolVarP(&cfg.UseUTC, "utc", "u", false, "")
 	flags.BoolVarP(&keepZeroSized, "keep-zero-sized-snapshots", "k", false, "")
@@ -125,12 +122,14 @@ func runAutoSnapshot(
 	var retentionTargets map[string]struct{}
 
 	var createErr error
-	// KEEP is the final total, including the new snapshot. At zero, skip
-	// creation and clean matching snapshots from every included dataset.
+	// KEEP is the final total; zero skips creation and cleans every included dataset.
 	if cfg.Keep > 0 {
 		retentionTargets, createErr = tools.DoNewSnapshots(ctx, cfg, datasets)
 	} else {
-		retentionTargets = datasetNameSet(datasets["included"])
+		retentionTargets = make(map[string]struct{}, len(datasets["included"]))
+		for _, dataset := range datasets["included"] {
+			retentionTargets[dataset.Name] = struct{}{}
+		}
 	}
 
 	if ctxErr := ctx.Err(); ctxErr != nil {
@@ -155,15 +154,6 @@ func runAutoSnapshot(
 	}
 
 	return 0
-}
-
-func datasetNameSet(datasets []zfs.Dataset) map[string]struct{} {
-	names := make(map[string]struct{}, len(datasets))
-	for _, dataset := range datasets {
-		names[dataset.Name] = struct{}{}
-	}
-
-	return names
 }
 
 func parseKeep(value string) (int, error) {

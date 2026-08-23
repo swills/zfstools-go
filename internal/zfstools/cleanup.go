@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"zfstools-go/internal/config"
 	"zfstools-go/internal/zfs"
@@ -116,7 +117,8 @@ func (tools Tools) PruneZeroSizedSnapshots(ctx context.Context, cfg config.Confi
 
 	filtered := make([]zfs.Snapshot, 0, len(snapshots))
 	for _, snapshot := range snapshots {
-		if !strings.Contains(snapshot.Name, "zfs-auto-snap_") {
+		_, component, found := strings.Cut(snapshot.Name, "@")
+		if !found || !strings.HasPrefix(component, "zfs-auto-snap_") {
 			filtered = append(filtered, snapshot)
 		}
 	}
@@ -160,10 +162,8 @@ func (tools Tools) ApplySnapshotRetention(
 
 	var filtered []zfs.Snapshot
 
-	prefix := snapshotPrefixInterval(cfg)
-
 	for _, snapshot := range snapshots {
-		if strings.Contains(snapshot.Name, prefix) {
+		if matchesGeneratedSnapshot(snapshot.Name, cfg) {
 			filtered = append(filtered, snapshot)
 		}
 	}
@@ -202,4 +202,21 @@ func (tools Tools) ApplySnapshotRetention(
 	}
 
 	return nil
+}
+
+func matchesGeneratedSnapshot(name string, cfg config.Config) bool {
+	_, component, found := strings.Cut(name, "@")
+	if !found {
+		return false
+	}
+
+	timestamp, found := strings.CutPrefix(component, snapshotPrefixInterval(cfg))
+	if !found {
+		return false
+	}
+
+	timestamp = strings.TrimSuffix(timestamp, "U")
+	parsed, err := time.Parse(snapshotFormat, timestamp)
+
+	return err == nil && parsed.Format(snapshotFormat) == timestamp
 }
