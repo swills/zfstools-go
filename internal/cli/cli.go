@@ -7,7 +7,6 @@ import (
 	"io"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -128,7 +127,7 @@ func runAutoSnapshot(
 		createErr = tools.DoNewSnapshots(ctx, cfg, datasets)
 	}
 
-	cleanupErr := tools.CleanupExpiredSnapshots(ctx, cfg, pool, datasets)
+	cleanupErr := tools.ApplySnapshotRetention(ctx, cfg, pool, datasets)
 
 	if createErr != nil {
 		_, _ = fmt.Fprintf(stderr, "Error creating snapshots: %v\n", createErr)
@@ -203,34 +202,11 @@ func runCleanupSnapshots(
 
 	tools := zfstools.New(client, stdout)
 
-	snapshots, err := client.ListSnapshots(ctx, pool, true, cfg.Debug)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "Error listing snapshots: %v\n", err)
+	if err := tools.PruneZeroSizedSnapshots(ctx, cfg, pool); err != nil {
+		_, _ = fmt.Fprintf(stderr, "Error cleaning up snapshots: %v\n", err)
 
 		return 1
 	}
-
-	filtered := make([]zfs.Snapshot, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		used, sizeErr := snapshot.GetUsed(ctx, cfg.Debug)
-		if sizeErr != nil {
-			continue
-		}
-
-		if !strings.Contains(snapshot.Name, "zfs-auto-snap_") && used == 0 {
-			filtered = append(filtered, snapshot)
-		}
-	}
-
-	datasets, err := client.ListDatasets(ctx, pool, []string{}, cfg.Debug)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "Error listing datasets: %v\n", err)
-
-		return 1
-	}
-
-	grouped := zfstools.GroupSnapshotsIntoDatasets(filtered, datasets)
-	tools.DatasetsDestroyZeroSizedSnapshots(ctx, grouped, cfg)
 
 	return 0
 }
